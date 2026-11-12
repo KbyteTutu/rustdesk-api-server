@@ -2,11 +2,11 @@ name: test
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "forapi" ]
     paths-ignore:
       - '**/README.md'
   pull_request:
-    branches: [ "master" ]
+    branches: [ "forapi" ]
     paths-ignore:
       - '**/README.md'
 
