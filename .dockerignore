@@ -1,0 +1,13 @@
+# Build context is the repo root. Keep it lean.
+.git
+target
+api/data
+api/release
+api/runtime
+api/rustdesk-client
+api/.idea
+api/.vscode
+db_v2.sqlite3
+test.*
+*.db
+debian-build

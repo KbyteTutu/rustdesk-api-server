@@ -1,29 +1,71 @@
-networks:
-  rustdesk-net:
-    external: false
+name: "rustdesk-selfhosted"
+
+# 三组件架构：hbbs(信令) + hbbr(中继) + api(账号/地址簿/控制台)
+# 首次部署前请先阅读 DEPLOY.md
+
 services:
-  rustdesk:
-    ports:
-      - 21114:21114
-      - 21115:21115
-      - 21116:21116
-      - 21116:21116/udp
-      - 21117:21117
-      - 21118:21118
-      - 21119:21119
-    image: lejianwen/rustdesk-server-s6:latest
-    environment:
-      - RELAY=<relay_server[:port]>
-      - ENCRYPTED_ONLY=1
-      - MUST_LOGIN=N
-      - TZ=Asia/Shanghai
-      - RUSTDESK_API_RUSTDESK_ID_SERVER=<id_server[:21116]>
-      - RUSTDESK_API_RUSTDESK_RELAY_SERVER=<relay_server[:21117]>
-      - RUSTDESK_API_RUSTDESK_API_SERVER=http://<api_server[:21114]>
-    volumes:
-      - /data/rustdesk/server:/data
-      - /data/rustdesk/api:/app/data #将数据库挂载
-      - /data/rustdesk/server:/app/conf/data #挂载key文件到api容器，可以不用使用 RUSTDESK_API_RUSTDESK_KEY
-    networks:
-      - rustdesk-net
+  hbbs:
+    image: ghcr.io/kbytetutu/rustdesk-hbbs:0.1
+    container_name: hbbs
     restart: unless-stopped
+    volumes:
+      - ./data:/root
+    ports:
+      - "21115:21115"
+      - "21116:21116"
+      - "21116:21116/udp"
+      - "21118:21118"
+    environment:
+      - RUST_LOG=info
+      # 可选：强制登录后才能连接（需与 api 容器使用相同 JWT key）
+      # - MUST_LOGIN=Y
+      # - RUSTDESK_API_JWT_KEY=${RUSTDESK_API_JWT_KEY}
+    depends_on:
+      - hbbr
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "21116"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  hbbr:
+    image: ghcr.io/kbytetutu/rustdesk-hbbr:0.1
+    container_name: hbbr
+    restart: unless-stopped
+    volumes:
+      - ./data:/root
+    ports:
+      - "21117:21117"
+      - "21119:21119"
+    environment:
+      - RUST_LOG=info
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "21117"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  api:
+    image: ghcr.io/kbytetutu/rustdesk-api:0.1
+    container_name: rustdesk-api
+    restart: unless-stopped
+    volumes:
+      - ./data/api:/app/data          # 数据库等
+      - ./data:/data:ro               # 只读挂载 hbbs 密钥，默认读取 /data/id_ed25519.pub
+    ports:
+      - "21114:21114"
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      # 对外地址（客户端/控制台可见），按实际域名或公网 IP 修改
+      - RUSTDESK_API_RUSTDESK_ID_SERVER=${RUSTDESK_HOST:-example.com}:21116
+      - RUSTDESK_API_RUSTDESK_RELAY_SERVER=${RUSTDESK_HOST:-example.com}:21117
+      - RUSTDESK_API_RUSTDESK_API_SERVER=http://${RUSTDESK_HOST:-example.com}:21114
+      # 可选：强制登录（需与 hbbs 一致）
+      # - RUSTDESK_API_JWT_KEY=${RUSTDESK_API_JWT_KEY}
+    depends_on:
+      - hbbs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:21114/api/login-options"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

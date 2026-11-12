@@ -1,66 +1,58 @@
-name: Build and publish to ghcr.io
+name: Build and publish docker images
 
 on:
   workflow_dispatch:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
-      - '[0-9]+.[0-9]+.[0-9]+'
-      - 'v[0-9]+.[0-9]+.[0-9]+-[0-9]+'
-      - '[0-9]+.[0-9]+.[0-9]+-[0-9]+'
+      - "v*.*.*"
 
 env:
-  CARGO_TERM_COLOR: always
-  LATEST_TAG: latest
+  REGISTRY: ghcr.io
 
 permissions:
   contents: read
-  packages: write # So need to set "secrets.GITHUB_TOKEN"
+  packages: write
 
 jobs:
-
-  # Binary build
-  build:
-    name: Build - ${{ matrix.job.name }}
-    runs-on: ubuntu-24.04
+  build-rust:
+    name: Build rust - ${{ matrix.job.name }}
+    runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
       matrix:
         job:
-          - { name: "amd64",   target: "x86_64-unknown-linux-musl" }
-          - { name: "arm64v8", target: "aarch64-unknown-linux-musl" }
-          - { name: "armv7",   target: "armv7-unknown-linux-musleabihf" }
-          - { name: "i386",    target: "i686-unknown-linux-musl" }
-          #- { name: "amd64fb", target: "x86_64-unknown-freebsd" }
+          - { name: "amd64",   os: ubuntu-24.04, target: "x86_64-unknown-linux-musl",  docker_arch: "amd64" }
+          - { name: "arm64v8", os: ubuntu-24.04, target: "aarch64-unknown-linux-musl", docker_arch: "arm64" }
+          - { name: "armv7",   os: ubuntu-24.04, target: "armv7-unknown-linux-musleabihf", docker_arch: "arm" }
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-    
+
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           targets: ${{ matrix.job.target }}
-          components: "rustfmt"
-          
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: ${{ matrix.job.os }}
+          workspaces: .
+          prefix-key: rustdesk-server
+          key: ${{ matrix.job.target }}
 
       - name: Build
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --release --all-features --target=${{ matrix.job.target }}
-          use-cross: true  
 
-      - name: Exec chmod
-        run: chmod -v a+x target/${{ matrix.job.target }}/release/*
+      - name: List binaries
+        run: ls -l target/${{ matrix.job.target }}/release/
 
-      - name: Publish Artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: binaries-linux-${{ matrix.job.name }}
@@ -68,272 +60,71 @@ jobs:
             target/${{ matrix.job.target }}/release/hbbr
             target/${{ matrix.job.target }}/release/hbbs
             target/${{ matrix.job.target }}/release/rustdesk-utils
-          if-no-files-found: error
-  
-  # Build and push single-arch Docker images to ghcr.io
-  create-s6-overlay-images:
-    name: Docker push s6-overlay - ${{ matrix.job.name }}
-    needs: build
+
+  images:
+    name: Docker image - ${{ matrix.image }}
+    needs: build-rust
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        job:
-          - { name: "amd64",   docker_platform: "linux/amd64",  s6_platform: "x86_64" }
-          - { name: "arm64v8", docker_platform: "linux/arm64",  s6_platform: "aarch64" }
-          - { name: "armv7",   docker_platform: "linux/arm/v7", s6_platform: "armhf" }
-#          - { name: "i386",    docker_platform: "linux/386",    s6_platform: "i686" }
+        image: [hbbs, hbbr, api]
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Download binaries
+      - name: Download rust binaries
+        if: matrix.image != 'api'
         uses: actions/download-artifact@v4
         with:
-          pattern: binaries-linux-${{ matrix.job.name }}
-          path: docker/rootfs/usr/bin
-          merge-multiple: true
+          pattern: binaries-linux-*
+          path: docker/bin
 
-      - name: Make binaries executable
-        run: chmod -v a+x docker/rootfs/usr/bin/*
+      - name: Arrange binaries per architecture
+        if: matrix.image != 'api'
+        run: |
+          mkdir -p docker/bin/stage
+          mv docker/bin/binaries-linux-amd64   docker/bin/amd64
+          mv docker/bin/binaries-linux-arm64v8 docker/bin/arm64
+          mv docker/bin/binaries-linux-armv7   docker/bin/arm
+          chmod -Rv a+x docker/bin/stage
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-        
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}-s6
 
-      - name: Get git tag
-        id: vars
+      - name: Get image name and tag
         run: |
-          T=${GITHUB_REF#refs/*/}
+          T="${GITHUB_REF#refs/*/}"
           if [[ "$GITHUB_REF" != refs/tags/* ]]; then T="latest"; fi
-          M=${T%%.*}
+          T="${T#v}"
+          M=$(echo "$T" | cut -d. -f1-2)
+          if [[ "$T" == "latest" ]]; then M="latest"; fi
           echo "GIT_TAG=$T" >> $GITHUB_ENV
           echo "MAJOR_TAG=$M" >> $GITHUB_ENV
+          echo "IMAGE=${{ env.REGISTRY }}/${{ github.repository_owner }}/rustdesk-${{ matrix.image }}" >> $GITHUB_ENV
 
-      - name: Build and push Docker image
+      - name: Build and push image
         uses: docker/build-push-action@v6
         with:
-          context: "./docker"
-          platforms: ${{ matrix.job.docker_platform }}
+          context: .
+          file: docker/${{ matrix.image }}.Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           provenance: false
           build-args: |
-            S6_ARCH=${{ matrix.job.s6_platform }}
+            API_VERSION=${{ env.GIT_TAG }}
           tags: |
-            ghcr.io/${{ github.repository }}-s6:${{ env.LATEST_TAG }}-${{ matrix.job.name }}
-            ghcr.io/${{ github.repository }}-s6:${{ env.GIT_TAG }}-${{ matrix.job.name }}
-            ghcr.io/${{ github.repository }}-s6:${{ env.MAJOR_TAG }}-${{ matrix.job.name }}
-          labels: ${{ steps.meta.outputs.labels }}
-
-  # Set up minifest and tag for pushed image
-  create-s6-overlay-images-manifest:
-    name: Manifest for s6-overlay images
-    needs: create-s6-overlay-images
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Get git tag
-        id: vars
-        run: |
-          T=${GITHUB_REF#refs/*/}
-          if [[ "$GITHUB_REF" != refs/tags/* ]]; then T="latest"; fi
-          M=${T%%.*}
-          echo "GIT_TAG=$T" >> $GITHUB_ENV
-          echo "MAJOR_TAG=$M" >> $GITHUB_ENV
-
-      # Create and push manifest for :ve.rs.ion tag
-      - name: Create and push manifest (:ve.rs.ion)
-        uses: Noelware/docker-manifest-action@master
-        if: github.event_name != 'workflow_dispatch'
-        with:
-          tags: ghcr.io/${{ github.repository }}-s6:${{ env.GIT_TAG }}
-          inputs: |
-            ghcr.io/${{ github.repository }}-s6:${{ env.GIT_TAG }}-amd64,
-            ghcr.io/${{ github.repository }}-s6:${{ env.GIT_TAG }}-arm64v8,
-            ghcr.io/${{ github.repository }}-s6:${{ env.GIT_TAG }}-armv7,
-#            ghcr.io/${{ github.repository }}-s6:${{ env.GIT_TAG }}-i386
-          push: true
-
-      # Create and push manifest for :major tag
-      - name: Create and push manifest (:major)
-        uses: Noelware/docker-manifest-action@master
-        with:
-          tags: ghcr.io/${{ github.repository }}-s6:${{ env.MAJOR_TAG }}
-          inputs: |
-            ghcr.io/${{ github.repository }}-s6:${{ env.MAJOR_TAG }}-amd64,
-            ghcr.io/${{ github.repository }}-s6:${{ env.MAJOR_TAG }}-arm64v8,
-            ghcr.io/${{ github.repository }}-s6:${{ env.MAJOR_TAG }}-armv7,
-#            ghcr.io/${{ github.repository }}-s6:${{ env.MAJOR_TAG }}-i386
-          push: true
-
-      # Create and push manifest for :latest tag
-      - name: Create and push manifest (:latest)
-        uses: Noelware/docker-manifest-action@master
-        with:
-          tags: ghcr.io/${{ github.repository }}-s6:${{ env.LATEST_TAG }}
-          inputs: |
-            ghcr.io/${{ github.repository }}-s6:${{ env.LATEST_TAG }}-amd64,
-            ghcr.io/${{ github.repository }}-s6:${{ env.LATEST_TAG }}-arm64v8,
-            ghcr.io/${{ github.repository }}-s6:${{ env.LATEST_TAG }}-armv7,
-#            ghcr.io/${{ github.repository }}-s6:${{ env.LATEST_TAG }}-i386
-          push: true
-
-  # Build and push single-arch Docker images to ghcr.io
-  create-classic-images:
-    name: Docker push classic - ${{ matrix.job.name }}
-    needs: build
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        job:
-          - { name: "amd64",   docker_platform: "linux/amd64" }
-          - { name: "arm64v8", docker_platform: "linux/arm64" }
-          - { name: "armv7",   docker_platform: "linux/arm/v7" }
-          - { name: "i386",    docker_platform: "linux/386" }
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Download binaries
-        uses: actions/download-artifact@v4
-        with:
-          pattern: binaries-linux-${{ matrix.job.name }}
-          path: docker-classic
-          merge-multiple: true
-
-      - name: Make binaries executable
-        run: chmod -v a+x docker-classic/*
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-
-      - name: Get git tag
-        id: vars
-        run: |
-          T=${GITHUB_REF#refs/*/}
-          if [[ "$GITHUB_REF" != refs/tags/* ]]; then T="latest"; fi
-          M=${T%%.*}
-          echo "GIT_TAG=$T" >> $GITHUB_ENV
-          echo "MAJOR_TAG=$M" >> $GITHUB_ENV
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: "./docker-classic"
-          platforms: ${{ matrix.job.docker_platform }}
-          push: true
-          provenance: false
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ env.LATEST_TAG }}-${{ matrix.job.name }}
-            ghcr.io/${{ github.repository }}:${{ env.GIT_TAG }}-${{ matrix.job.name }}
-            ghcr.io/${{ github.repository }}:${{ env.MAJOR_TAG }}-${{ matrix.job.name }}
-          labels: ${{ steps.meta.outputs.labels }}
-
-  # Set up minifest and tag for pushed image
-  create-classic-images-manifest:
-    name: Manifest for classic images
-    needs: create-classic-images
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Get git tag
-        id: vars
-        run: |
-          T=${GITHUB_REF#refs/*/}
-          if [[ "$GITHUB_REF" != refs/tags/* ]]; then T="latest"; fi
-          M=${T%%.*}
-          echo "GIT_TAG=$T" >> $GITHUB_ENV
-          echo "MAJOR_TAG=$M" >> $GITHUB_ENV
-
-      # Create and push manifest for :ve.rs.ion tag
-      - name: Create and push manifest (:ve.rs.ion)
-        uses: Noelware/docker-manifest-action@master
-        if: github.event_name != 'workflow_dispatch'
-        with:
-          tags: ghcr.io/${{ github.repository }}:${{ env.GIT_TAG }}
-          inputs: |
-            ghcr.io/${{ github.repository }}:${{ env.GIT_TAG }}-amd64,
-            ghcr.io/${{ github.repository }}:${{ env.GIT_TAG }}-arm64v8,
-            ghcr.io/${{ github.repository }}:${{ env.GIT_TAG }}-armv7,
-            ghcr.io/${{ github.repository }}:${{ env.GIT_TAG }}-i386
-          push: true
-
-      # Create and push manifest for :major tag
-      - name: Create and push manifest (:major)
-        uses: Noelware/docker-manifest-action@master
-        with:
-          tags: ghcr.io/${{ github.repository }}:${{ env.MAJOR_TAG }}
-          inputs: |
-            ghcr.io/${{ github.repository }}:${{ env.MAJOR_TAG }}-amd64,
-            ghcr.io/${{ github.repository }}:${{ env.MAJOR_TAG }}-arm64v8,
-            ghcr.io/${{ github.repository }}:${{ env.MAJOR_TAG }}-armv7,
-            ghcr.io/${{ github.repository }}:${{ env.MAJOR_TAG }}-i386
-          push: true
-
-      # Create and push manifest for :latest tag
-      - name: Create and push manifest (:latest)
-        uses: Noelware/docker-manifest-action@master
-        with:
-          tags: ghcr.io/${{ github.repository }}:${{ env.LATEST_TAG }}
-          inputs: |
-            ghcr.io/${{ github.repository }}:${{ env.LATEST_TAG }}-amd64,
-            ghcr.io/${{ github.repository }}:${{ env.LATEST_TAG }}-arm64v8,
-            ghcr.io/${{ github.repository }}:${{ env.LATEST_TAG }}-armv7,
-            ghcr.io/${{ github.repository }}:${{ env.LATEST_TAG }}-i386
-          push: true
+            ${{ env.IMAGE }}:${{ env.GIT_TAG }}
+            ${{ env.IMAGE }}:${{ env.MAJOR_TAG }}
+            ${{ env.IMAGE }}:latest
