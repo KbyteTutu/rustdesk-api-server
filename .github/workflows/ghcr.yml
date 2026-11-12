@@ -16,14 +16,14 @@ permissions:
 jobs:
   build-rust:
     name: Build rust - ${{ matrix.job.name }}
-    runs-on: ${{ matrix.job.os }}
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         job:
-          - { name: "amd64",   os: ubuntu-24.04, target: "x86_64-unknown-linux-musl",  docker_arch: "amd64" }
-          - { name: "arm64v8", os: ubuntu-24.04, target: "aarch64-unknown-linux-musl", docker_arch: "arm64" }
-          - { name: "armv7",   os: ubuntu-24.04, target: "armv7-unknown-linux-musleabihf", docker_arch: "arm" }
+          - { name: "amd64",   platform: "linux/amd64", docker_arch: "amd64" }
+          - { name: "arm64v8", platform: "linux/arm64", docker_arch: "arm64" }
+          - { name: "armv7",   platform: "linux/arm/v7", docker_arch: "arm" }
 
     steps:
       - name: Checkout repository
@@ -31,35 +31,26 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.job.target }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: .
-          prefix-key: rustdesk-server
-          key: ${{ matrix.job.target }}
-
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --all-features --target=${{ matrix.job.target }}
+      - name: Build (rust:alpine, musl native per arch)
+        run: |
+          docker run --rm --platform ${{ matrix.job.platform }} \
+            -v "$PWD":/src -w /src rust:alpine \
+            sh -c "apk add --no-cache protoc musl-dev make perl >/dev/null && cargo build --release"
 
       - name: List binaries
-        run: ls -l target/${{ matrix.job.target }}/release/
+        run: ls -l target/release/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: binaries-linux-${{ matrix.job.name }}
           path: |
-            target/${{ matrix.job.target }}/release/hbbr
-            target/${{ matrix.job.target }}/release/hbbs
-            target/${{ matrix.job.target }}/release/rustdesk-utils
+            target/release/hbbr
+            target/release/hbbs
+            target/release/rustdesk-utils
 
   images:
     name: Docker image - ${{ matrix.image }}
