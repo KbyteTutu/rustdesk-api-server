@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | hbbs | `hbbs` | `ghcr.io/kbytetutu/rustdesk-hbbs:0.1` | ID 注册、打洞信令、**key exchange**、websocket | 21115, 21116/tcp+udp, 21118 |
 | hbbr | `hbbr` | `ghcr.io/kbytetutu/rustdesk-hbbr:0.1` | 流量中继 | 21117, 21119 |
-| api | `rustdesk-api` | `ghcr.io/kbytetutu/rustdesk-api:0.1` | 账号登录、地址簿、审计、web 控制台、webclient | 21114 |
+| api | `rustdesk-api` | `ghcr.io/kbytetutu/rustdesk-api:0.2` | 账号登录、地址簿、审计、web 控制台、webclient | 21114 |
 
 三容器共享 `./data` 目录：hbbs 在其中生成/读取服务端密钥对 `id_ed25519(.pub)`，api 只读挂载同一目录以读取公钥。
 

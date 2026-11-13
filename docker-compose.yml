@@ -46,7 +46,7 @@ services:
       retries: 3
 
   api:
-    image: ghcr.io/kbytetutu/rustdesk-api:0.1
+    image: ghcr.io/kbytetutu/rustdesk-api:0.2
     container_name: rustdesk-api
     restart: unless-stopped
     volumes:
