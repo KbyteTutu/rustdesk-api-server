@@ -138,7 +138,7 @@ docker build -f docker/api.Dockerfile -t rustdesk-api:dev .
 说明：
 
 - api 镜像内自动构建 web 控制台（来自 [lejianwen/rustdesk-api-web](https://github.com/lejianwen/rustdesk-api-web)，构建参数 `ADMIN_WEB_REF` 已固定到具体 commit，更新时修改 `docker/api.Dockerfile` 顶部的 `ARG`）
-- Rust 二进制多架构（amd64/arm64/armv7）由 CI 使用 cross 工具链构建
+- Rust 二进制多架构（amd64/arm64）由 CI 构建（rust:alpine 不提供 armv7，已放弃 32 位 ARM）
 
 ## 仓库维护
 
