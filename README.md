@@ -38,7 +38,7 @@ docker compose logs rustdesk-api | grep "Admin Password"   # 初始管理员密�
 ├── api/               # Go：rustdesk-api（git subtree 引入，含自身 docs/）
 ├── docker/            # 三个组件各自的 Dockerfile（api.Dockerfile / hbbs.Dockerfile / hbbr.Dockerfile）
 ├── docker-compose.yml # 三组件编排
-├── .github/workflows/ # ghcr.yml：tag v*.*.* 触发，构建多架构镜像推送 GHCR
+├── .github/workflows/ # ghcr.yml：tag v*.*.* 触发，构建 amd64 镜像推送 GHCR
 └── DEPLOY.md          # 部署指南
 ```
 
