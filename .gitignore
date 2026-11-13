@@ -11,5 +11,4 @@ db_v2.sqlite3
 test.*
 .idea
 docker/bin/
-.env
 /data/
