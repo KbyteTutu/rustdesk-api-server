@@ -5,6 +5,8 @@ api/data
 api/release
 api/runtime
 api/rustdesk-client
+web/node_modules
+web/dist
 api/.idea
 api/.vscode
 db_v2.sqlite3

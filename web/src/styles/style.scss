@@ -1,20 +1,135 @@
-$basicBlack: #000000;
-$basicWhite: #ffffff;
-
-$primaryColor: #409eff;
-
+// ================= Design tokens =================
 :root {
+  --brand: #4f46e5; // indigo-600
+  --brand-weak: #eef0fc;
+  --surface: #ffffff;
+  --bg: #f4f5fa;
+  --line: #e7e8ee;
+  --text: #1f2430;
+  --text-2: #6b7280;
+
+  // Element Plus 主色系
+  --el-color-primary: #4f46e5;
+  --el-color-primary-light-3: #7b78ee;
+  --el-color-primary-light-5: #a3a0f3;
+  --el-color-primary-light-7: #cac9f8;
+  --el-color-primary-light-8: #deddfa;
+  --el-color-primary-light-9: #eef0fc;
+  --el-color-primary-dark-2: #3f3ad4;
+  --el-border-radius-base: 6px;
+  --el-font-size-base: 13px;
+
   --basicBlack: #000000;
   --basicWhite: #ffffff;
-  --primaryColor: #409eff;
-  --tag-bg-color: #efefef;
+  --primaryColor: var(--brand);
+  --tag-bg-color: #eef0f4;
+}
+
+html.dark {
+  --brand-weak: #1e2136;
+  --surface: #171b21;
+  --bg: #101418;
+  --line: #262b33;
+  --text: #e5e7eb;
+  --text-2: #9ca3af;
+  --tag-bg-color: #24252b;
+  --basicBlack: #fff;
 }
 
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
-    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto',
+    'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
 }
 
+// ================= 侧栏菜单（明暗自适应） =================
+.el-menu {
+  --el-menu-bg-color: var(--surface);
+  --el-menu-text-color: var(--text-2);
+  --el-menu-active-color: var(--brand);
+  --el-menu-hover-bg-color: var(--brand-weak);
+  border-right: 1px solid var(--line);
+
+  .el-menu-item.is-active {
+    background: var(--brand-weak);
+    font-weight: 600;
+  }
+}
+
+// ================= 全局紧凑化 =================
+.el-table {
+  font-size: 12.5px;
+
+  .el-table__cell {
+    padding: 6px 0;
+  }
+
+  .el-table__header .el-table__cell {
+    padding: 7px 0;
+    --el-table-header-bg-color: var(--bg);
+    color: var(--text-2);
+    font-weight: 600;
+  }
+}
+
+.el-button + .el-button {
+  margin-left: 6px;
+}
+
+.el-form-item {
+  margin-bottom: 14px;
+}
+
+.el-dialog {
+  border-radius: 10px;
+
+  .el-dialog__header {
+    padding: 14px 16px;
+    margin-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .el-dialog__body {
+    padding: 16px;
+  }
+}
+
+.el-pagination {
+  --el-pagination-button-height: 26px;
+  --el-pagination-height: 26px;
+}
+
+.el-tag {
+  border-radius: 4px;
+}
+
+.el-card {
+  border-radius: 10px;
+  border-color: var(--line);
+}
+
+.el-drawer {
+  --el-drawer-padding-primary: 16px;
+}
+
+// 细滚动条
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c9cbd6;
+  border-radius: 3px;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #333a45;
+}
+
+// ================= 原有工具类（视图引用，保留） =================
 .list-body {
   margin: 10px 0;
 }
@@ -41,11 +156,4 @@ body {
     margin-left: 5px;
     margin-right: 5px;
   }
-}
-
-html.dark {
-  /* 自定义深色背景颜色 */
-  //--el-bg-color: #626aef;
-  --tag-bg-color: #24252b;
-  --basicBlack: #fff;
 }

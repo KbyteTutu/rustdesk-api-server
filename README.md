@@ -36,6 +36,7 @@ docker compose logs rustdesk-api | grep "Admin Password"   # 初始管理员密�
 ├── src/               # Rust：hbbs / hbbr / rustdesk-utils（fork 自 lejianwen forapi）
 ├── libs/hbb_common/   # Rust 公共库（submodule）
 ├── api/               # Go：rustdesk-api（git subtree 引入，含自身 docs/）
+├── web/               # Vue 控制台（git subtree 引自 lejianwen/rustdesk-api-web，已按 Kbytetutu 风格定制）
 ├── docker/            # 三个组件各自的 Dockerfile（api.Dockerfile / hbbs.Dockerfile / hbbr.Dockerfile）
 ├── docker-compose.yml # 三组件编排
 ├── .github/workflows/ # ghcr.yml：tag v*.*.* 触发，构建 amd64 镜像推送 GHCR

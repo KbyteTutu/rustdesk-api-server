@@ -1,15 +1,12 @@
-ARG ADMIN_WEB_REF=3998c2a9213fcd047252776d0f0db33e6717026c
 ARG API_VERSION=latest
 
-# ---- Stage 1: build the web console (resources/admin) ----
+# ---- Stage 1: build the web console (web/) ----
 FROM node:20-alpine AS adminbuild
-ARG ADMIN_WEB_REF
-RUN apk add --no-cache git
-RUN git clone https://github.com/lejianwen/rustdesk-api-web.git /src \
- && cd /src \
- && git checkout ${ADMIN_WEB_REF} \
- && npm install \
- && npm run build
+WORKDIR /src
+COPY web/package.json web/package-lock.json ./
+RUN npm install
+COPY web/ .
+RUN npm run build
 
 # ---- Stage 2: build the Go API ----
 FROM golang:1.23-alpine AS gobuild

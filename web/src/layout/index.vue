@@ -13,13 +13,15 @@
         </div>
 
         <el-main class="app-main">
-          <router-view v-slot="{ Component }">
-            <transition mode="out-in" name="el-fade-in-linear">
-              <keep-alive :include="cachedTags">
-                <component :is="Component"/>
-              </keep-alive>
-            </transition>
-          </router-view>
+          <div class="app-main-inner">
+            <router-view v-slot="{ Component }">
+              <transition mode="out-in" name="el-fade-in-linear">
+                <keep-alive :include="cachedTags">
+                  <component :is="Component"/>
+                </keep-alive>
+              </transition>
+            </router-view>
+          </div>
         </el-main>
       </el-container>
     </el-container>
@@ -46,25 +48,34 @@
 
 <style lang="scss" scoped>
 .app-header {
-  background-color: #3f454b;
-  color: var(--basicWhite);
+  background-color: var(--surface);
+  color: var(--text);
   display: flex;
-  height: 50px;
+  height: 48px;
+  border-bottom: 1px solid var(--line);
 }
 
 .header-tags {
   height: auto;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
   display: flex;
   padding: 0;
 }
 
 .app-left {
   transition: width 0.5s;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
 }
 
 .app-container {
   min-height: 100vh;
+}
+
+.app-main {
+  padding: 14px;
+  background: var(--bg);
 }
 </style>
 

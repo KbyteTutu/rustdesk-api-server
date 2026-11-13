@@ -23,7 +23,7 @@ export const useAppStore = defineStore({
   id: 'App',
   state: () => ({
     setting: {
-      title: 'Rustdesk API Admin',
+      title: 'RustDesk 控制台 · Kbytetutu fork',
       hello: '',
       sideIsCollapse: false,
       logo,

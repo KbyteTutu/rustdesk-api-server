@@ -2,6 +2,8 @@
   <div class="login-container">
     <div class="login-card">
       <img src="@/assets/logo.png" alt="logo" class="login-logo"/>
+      <h1 class="login-title">RustDesk 控制台</h1>
+      <div class="login-subtitle">自建中心服务器 · <a href="https://github.com/KbyteTutu/rustdesk-server" target="_blank">Kbytetutu</a> fork</div>
 
       <el-form v-if="!disablePwd" label-position="top" class="login-form">
         <el-form-item :label="T('Username')">
@@ -36,6 +38,10 @@
             <span>{{ T(option.name) }}</span>
           </el-button>
         </div>
+      </div>
+
+      <div class="login-footer">
+        基于 <a href="https://github.com/lejianwen/rustdesk-api-web" target="_blank">lejianwen/rustdesk-api-web</a> 修改
       </div>
     </div>
   </div>
@@ -174,38 +180,58 @@
   justify-content: center;
   align-items: center;
   height: 100vh;
-  background-color: #2d3a4b;
   padding: 20px;
   box-sizing: border-box;
+  background:
+    radial-gradient(900px 500px at 15% -10%, #e0e7ff 0%, transparent 60%),
+    radial-gradient(700px 420px at 110% 15%, #dbeafe 0%, transparent 55%),
+    var(--bg);
 }
 
 .login-card {
   width: 360px;
-  background-color: #283342;
-  padding: 40px;
-  border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  background-color: var(--surface);
+  padding: 32px 32px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 32px rgba(31, 36, 48, 0.08);
   text-align: center;
 }
 
-h1 {
-  margin-bottom: 20px;
-  font-size: 24px;
-  font-weight: bold;
+.login-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+
+.login-subtitle {
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin-bottom: 22px;
+
+  a {
+    color: var(--brand);
+    text-decoration: none;
+    font-weight: 500;
+  }
 }
 
 .login-form {
-  margin-bottom: 20px;
+  margin-bottom: 8px;
+  text-align: left;
 }
 
 .login-input {
   width: 100%;
-  .captcha{
+
+  .captcha {
     cursor: pointer;
     width: 150px;
   }
 }
-.captcha-input{
+
+.captcha-input {
   :deep(.el-input-group__append) {
     border-radius: 5px;
     padding: 0;
@@ -215,24 +241,24 @@ h1 {
 
 .login-button {
   width: 100%;
-  height: 40px;
-  margin-bottom: 20px;
+  height: 38px;
+  margin-bottom: 8px;
   margin-left: 0;
 }
 
 .divider {
   display: flex;
   align-items: center;
-  margin: 20px 0;
-  font-size: 14px;
-  color: #888;
+  margin: 14px 0;
+  font-size: 12px;
+  color: var(--text-2);
 
   &::before,
   &::after {
     content: '';
     flex: 1;
     height: 1px;
-    background-color: #ddd;
+    background-color: var(--line);
   }
 
   &::before {
@@ -247,7 +273,7 @@ h1 {
 .oidc-options {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .oidc-btn {
@@ -256,41 +282,40 @@ h1 {
   justify-content: center;
   gap: 10px;
   width: 100%;
-  height: 50px;
-  background-color: white;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  color: black;
-  font-size: 14px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  height: 38px;
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
 }
 
 .oidc-icon {
-  width: 24px;
-  height: 24px;
-  margin-right: 10px;
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
 }
 
 .login-logo {
-  width: 80px;
-  height: 80px;
-  margin: 0 auto 20px;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
   display: block;
 }
 
-.el-form-item {
-  ::v-deep(.el-form-item__label) {
-    color: #fff;
-  }
+.login-footer {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--text-2);
 
-  .el-input {
-    ::v-deep(.el-input__wrapper) {
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      background: transparent;
-    }
+  a {
+    color: var(--text-2);
+    text-decoration: none;
 
-    ::v-deep(input) {
-      color: #fff;
+    &:hover {
+      color: var(--brand);
     }
   }
 }

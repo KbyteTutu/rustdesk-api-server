@@ -137,12 +137,13 @@ docker build -f docker/api.Dockerfile -t rustdesk-api:dev .
 
 说明：
 
-- api 镜像内自动构建 web 控制台（来自 [lejianwen/rustdesk-api-web](https://github.com/lejianwen/rustdesk-api-web)，构建参数 `ADMIN_WEB_REF` 已固定到具体 commit，更新时修改 `docker/api.Dockerfile` 顶部的 `ARG`）
+- web 控制台源码在仓库 `web/`（subtree 引自 [lejianwen/rustdesk-api-web](https://github.com/lejianwen/rustdesk-api-web)，已按 Kbytetutu 风格定制），随镜像一并构建
 - Rust 二进制由 CI 在 amd64 上原生编译（仅支持 amd64；rust:alpine 无 armv7，arm64 如需可自行加回矩阵）
 
 ## 仓库维护
 
 - **api 上游同步**（Go 部分）：`git subtree pull --prefix=api https://github.com/lejianwen/rustdesk-api master --squash`
+- **web 控制台上游同步**：`git subtree pull --prefix=web https://github.com/lejianwen/rustdesk-api-web master --squash`（注意保留本地样式定制）
 - **server 上游同步**（Rust 部分）：以 forapi 分支模式合并 `rustdesk/rustdesk-server` 官方 master
 - 版本基线 0.1：发版打 tag `v0.1.x` 即可触发 CI
 
