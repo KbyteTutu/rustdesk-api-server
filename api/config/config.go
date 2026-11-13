@@ -67,6 +67,10 @@ func Init(rowVal *Config, path string) *viper.Viper {
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	v.SetEnvPrefix("RUSTDESK_API")
+	// An older config.yaml lacks these, and their zero values break logins.
+	// Don't default from conf/config.yaml: much of it is placeholders.
+	v.SetDefault("app.captcha-threshold", 3)
+	v.SetDefault("app.token-expire", "168h")
 	v.SetConfigFile(path)
 	v.SetConfigType("yaml")
 	err := v.ReadInConfig()
@@ -88,6 +92,13 @@ func Init(rowVal *Config, path string) *viper.Viper {
 				rowVal.Rustdesk.ParsePort()
 			})
 	*/
+	// Older releases shipped these as a bare number of seconds, which decodes
+	// as nanoseconds. A second or more of nanoseconds already works, so it stays.
+	for _, k := range []string{"app.token-expire", "jwt.expire-duration"} {
+		if n, ok := v.Get(k).(int); ok && n > 0 && time.Duration(n) < time.Second {
+			v.Set(k, time.Duration(n)*time.Second)
+		}
+	}
 	if err := v.Unmarshal(rowVal); err != nil {
 		panic(fmt.Errorf("Fatal error config: %s \n", err))
 	}

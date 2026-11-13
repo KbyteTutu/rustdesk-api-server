@@ -3,7 +3,7 @@
     <div class="login-card">
       <img src="@/assets/logo.png" alt="logo" class="login-logo"/>
       <h1 class="login-title">RustDesk 控制台</h1>
-      <div class="login-subtitle">自建中心服务器 · <a href="https://github.com/KbyteTutu/rustdesk-server" target="_blank">Kbytetutu</a> fork</div>
+      <div class="login-subtitle">自建中心服务器 · <a href="https://github.com/KbyteTutu/rustdesk-api-server" target="_blank">Kbytetutu</a> fork</div>
 
       <el-form v-if="!disablePwd" label-position="top" class="login-form">
         <el-form-item :label="T('Username')">

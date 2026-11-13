@@ -8,8 +8,8 @@
 
 | 组件 | 容器 | 镜像 | 职责 | 端口 |
 |---|---|---|---|---|
-| hbbs | `hbbs` | `ghcr.io/kbytetutu/rustdesk-hbbs:0.1` | ID 注册、打洞信令、**key exchange**、websocket | 21115, 21116/tcp+udp, 21118 |
-| hbbr | `hbbr` | `ghcr.io/kbytetutu/rustdesk-hbbr:0.1` | 流量中继 | 21117, 21119 |
+| hbbs | `hbbs` | `ghcr.io/kbytetutu/rustdesk-hbbs:0.2` | ID 注册、打洞信令、**key exchange**、websocket | 21115, 21116/tcp+udp, 21118 |
+| hbbr | `hbbr` | `ghcr.io/kbytetutu/rustdesk-hbbr:0.2` | 流量中继 | 21117, 21119 |
 | api | `rustdesk-api` | `ghcr.io/kbytetutu/rustdesk-api:0.2` | 账号登录、地址簿、审计、web 控制台、webclient | 21114 |
 
 三容器共享 `./data` 目录：hbbs 在其中生成/读取服务端密钥对 `id_ed25519(.pub)`，api 只读挂载同一目录以读取公钥。
@@ -31,8 +31,8 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/KbyteTutu/rustdesk-server.git
-cd rustdesk-server
+git clone https://github.com/KbyteTutu/rustdesk-api-server.git
+cd rustdesk-api-server
 cp .env.example .env
 # 编辑 .env：RUSTDESK_HOST 改为你的域名或公网 IP
 docker compose up -d
@@ -118,7 +118,7 @@ docker compose up -d
 
 发布版本由 GitHub Actions 构建：推送 `v*.*.*` tag 或手动触发 workflow，自动构建三镜像并推送 `ghcr.io/kbytetutu/rustdesk-*`。
 
-本地构建（以 amd64 为例）：
+本地构建（以 amd64 为例；arm64 同理放进 docker/bin/arm64/）：
 
 ```bash
 # 1. 构建 Rust 二进制（musl）
@@ -138,7 +138,7 @@ docker build -f docker/api.Dockerfile -t rustdesk-api:dev .
 说明：
 
 - web 控制台源码在仓库 `web/`（subtree 引自 [lejianwen/rustdesk-api-web](https://github.com/lejianwen/rustdesk-api-web)，已按 Kbytetutu 风格定制），随镜像一并构建
-- Rust 二进制由 CI 在 amd64 上原生编译（仅支持 amd64；rust:alpine 无 armv7，arm64 如需可自行加回矩阵）
+- Rust 二进制由 CI 在 amd64（x86 runner）与 arm64（GitHub 免费 arm runner）上各自原生编译；api 镜像的 Go 部分在同一构建里用 zig 交叉编译，三个镜像均为 amd64+arm64 双架构。不支持 armv7（rust:alpine 无 arm/v7 镜像）
 
 ## 仓库维护
 

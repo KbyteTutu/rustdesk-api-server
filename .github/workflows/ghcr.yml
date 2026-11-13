@@ -16,21 +16,20 @@ permissions:
 jobs:
   build-rust:
     name: Build rust - ${{ matrix.job.name }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.job.runs }}
     strategy:
       fail-fast: false
       matrix:
         job:
-          - { name: "amd64",   platform: "linux/amd64", docker_arch: "amd64" }
+          # amd64 在 x86 runner 原生编译；arm64 在 GitHub 免费 arm runner 原生编译（公开仓库免费）
+          - { name: "amd64", platform: "linux/amd64", runs: "ubuntu-24.04" }
+          - { name: "arm64", platform: "linux/arm64", runs: "ubuntu-24.04-arm" }
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Build (rust:alpine, musl native per arch)
         run: |
@@ -74,10 +73,8 @@ jobs:
         if: matrix.image != 'api'
         run: |
           mv docker/bin/binaries-linux-amd64 docker/bin/amd64
+          mv docker/bin/binaries-linux-arm64 docker/bin/arm64
           chmod -Rv a+x docker/bin
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -106,7 +103,7 @@ jobs:
         with:
           context: .
           file: docker/${{ matrix.image }}.Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           provenance: false
           build-args: |

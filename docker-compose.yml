@@ -5,7 +5,7 @@ name: "rustdesk-selfhosted"
 
 services:
   hbbs:
-    image: ghcr.io/kbytetutu/rustdesk-hbbs:0.1
+    image: ghcr.io/kbytetutu/rustdesk-hbbs:0.2
     container_name: hbbs
     restart: unless-stopped
     volumes:
@@ -29,7 +29,7 @@ services:
       retries: 3
 
   hbbr:
-    image: ghcr.io/kbytetutu/rustdesk-hbbr:0.1
+    image: ghcr.io/kbytetutu/rustdesk-hbbr:0.2
     container_name: hbbr
     restart: unless-stopped
     volumes:
