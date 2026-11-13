@@ -98,7 +98,8 @@ jobs:
           if [[ "$T" == "latest" ]]; then M="latest"; fi
           echo "GIT_TAG=$T" >> $GITHUB_ENV
           echo "MAJOR_TAG=$M" >> $GITHUB_ENV
-          echo "IMAGE=${{ env.REGISTRY }}/${{ github.repository_owner }}/rustdesk-${{ matrix.image }}" >> $GITHUB_ENV
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=${{ env.REGISTRY }}/${OWNER}/rustdesk-${{ matrix.image }}" >> $GITHUB_ENV
 
       - name: Build and push image
         uses: docker/build-push-action@v6
