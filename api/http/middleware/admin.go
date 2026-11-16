@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/lejianwen/rustdesk-api/v2/http/response"
 	"github.com/lejianwen/rustdesk-api/v2/service"
 )
 
@@ -10,17 +9,15 @@ import (
 func BackendUserAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 
-		//测试先关闭
 		token := c.GetHeader("api-token")
-		if token == "" {
-			response.Fail(c, 403, response.TranslateMsg(c, "NeedLogin"))
-			c.Abort()
+		uid, err := service.AllService.UserService.VerifyJWT(token)
+		if err != nil {
+			c.AbortWithStatusJSON(401, gin.H{"code": 401, "msg": "Unauthorized"})
 			return
 		}
-		user, ut := service.AllService.UserService.InfoByAccessToken(token)
-		if user.Id == 0 {
-			response.Fail(c, 403, response.TranslateMsg(c, "NeedLogin"))
-			c.Abort()
+		user, _ := service.AllService.UserService.InfoByAccessToken(token)
+		if user.Id == 0 || user.Id != uid {
+			c.AbortWithStatusJSON(401, gin.H{"code": 401, "msg": "Unauthorized"})
 			return
 		}
 
@@ -34,8 +31,6 @@ func BackendUserAuth() gin.HandlerFunc {
 
 		c.Set("curUser", user)
 		c.Set("token", token)
-		//如果时间小于1天,token自动续期
-		service.AllService.UserService.AutoRefreshAccessToken(ut)
 
 		c.Next()
 	}

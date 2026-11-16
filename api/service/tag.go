@@ -32,34 +32,33 @@ func (s *TagService) ListByUserIdAndCollectionId(userId, cid uint) (res *model.T
 	})
 	return
 }
-func (s *TagService) UpdateTags(userId uint, tags map[string]uint) {
-	tx := DB.Begin()
-	//先查询所有tag
+func syncDefaultTags(tx *gorm.DB, userId uint, tags map[string]uint) error {
 	var allTags []*model.Tag
-	tx.Where("user_id = ?", userId).Find(&allTags)
-	for _, t := range allTags {
-		if _, ok := tags[t.Name]; !ok {
-			//删除
-			tx.Delete(t)
-		} else {
-			if tags[t.Name] != t.Color {
-				//更新
-				t.Color = tags[t.Name]
-				tx.Save(t)
+	if err := tx.Where("user_id = ? AND collection_id = 0", userId).Find(&allTags).Error; err != nil {
+		return err
+	}
+	seen := make(map[string]bool, len(allTags))
+	for _, tag := range allTags {
+		color, ok := tags[tag.Name]
+		if !ok {
+			if err := tx.Delete(tag).Error; err != nil {
+				return err
 			}
-			//移除
-			delete(tags, t.Name)
+		} else {
+			seen[tag.Name] = true
+			if err := tx.Model(tag).Update("color", color).Error; err != nil {
+				return err
+			}
 		}
 	}
-	//新增
-	for tag, color := range tags {
-		t := &model.Tag{}
-		t.Name = tag
-		t.Color = color
-		t.UserId = userId
-		tx.Create(t)
+	for name, color := range tags {
+		if !seen[name] {
+			if err := tx.Create(&model.Tag{Name: name, Color: color, UserId: userId, CollectionId: 0}).Error; err != nil {
+				return err
+			}
+		}
 	}
-	tx.Commit()
+	return nil
 }
 
 // InfoById 根据用户id取用户信息

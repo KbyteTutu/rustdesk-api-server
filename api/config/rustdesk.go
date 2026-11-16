@@ -1,7 +1,10 @@
 package config
 
 import (
+	"encoding/base64"
+	"fmt"
 	"os"
+	"strings"
 )
 
 const (
@@ -23,18 +26,22 @@ type Rustdesk struct {
 	WsHost                    string `mapstructure:"ws-host"`
 }
 
-func (rd *Rustdesk) LoadKeyFile() {
-	// Load key file
-	if rd.Key != "" {
-		return
-	}
-	if rd.KeyFile != "" {
-		// Load key from file
+func (rd *Rustdesk) LoadKeyFile() error {
+	if rd.Key == "" && rd.KeyFile != "" {
 		b, err := os.ReadFile(rd.KeyFile)
 		if err != nil {
-			return
+			return fmt.Errorf("read RustDesk public key: %w", err)
 		}
 		rd.Key = string(b)
-		return
 	}
+	rd.Key = strings.TrimSpace(rd.Key)
+	if rd.Key != "" {
+		decoded, err := base64.StdEncoding.DecodeString(rd.Key)
+		if err != nil || len(decoded) != 32 {
+			return fmt.Errorf("RustDesk public key must be base64-encoded 32 bytes")
+		}
+	} else if rd.KeyFile != "" {
+		return fmt.Errorf("RustDesk public key file is empty")
+	}
+	return nil
 }

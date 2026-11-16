@@ -12,3 +12,5 @@ test.*
 .idea
 docker/bin/
 /data/
+.env
+.env.local

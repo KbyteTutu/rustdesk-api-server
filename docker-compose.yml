@@ -1,71 +1,123 @@
-name: "rustdesk-selfhosted"
+name: rustdesk-selfhosted
 
-# 三组件架构：hbbs(信令) + hbbr(中继) + api(账号/地址簿/控制台)
-# 首次部署前请先阅读 DEPLOY.md
+# Build this revision before use; see DEPLOY.md. No network control ports.
+x-logging: &bounded-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   hbbs:
-    image: ghcr.io/kbytetutu/rustdesk-hbbs:0.2
-    container_name: hbbs
+    logging: *bounded-logging
+    image: ghcr.io/kbytetutu/rustdesk-hbbs:${RUSTDESK_IMAGE_TAG:?}
     restart: unless-stopped
+    command: ["-r", "${RUSTDESK_HOST:?}:21117", "-k", "_"]
     volumes:
       - ./data:/root
+      - hbbs-control:/run/control
     ports:
       - "21115:21115"
       - "21116:21116"
       - "21116:21116/udp"
-      - "21118:21118"
+      - "127.0.0.1:21118:21118"
     environment:
-      - RUST_LOG=info
-      # 可选：强制登录后才能连接（需与 api 容器使用相同 JWT key）
-      # - MUST_LOGIN=Y
-      # - RUSTDESK_API_JWT_KEY=${RUSTDESK_API_JWT_KEY}
-    depends_on:
-      - hbbr
+      RUST_LOG: info
+      MUST_LOGIN: "Y"
+      RUSTDESK_API_JWT_KEY: ${RUSTDESK_API_JWT_KEY:?}
+      CONTROL_SOCKET: /run/control/private/control.sock
     healthcheck:
-      test: ["CMD", "nc", "-z", "127.0.0.1", "21116"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      test:
+        - CMD-SHELL
+        - >-
+          test -s /root/id_ed25519.pub &&
+          test -S /run/control/private/control.sock &&
+          nc -z 127.0.0.1 21116
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   hbbr:
-    image: ghcr.io/kbytetutu/rustdesk-hbbr:0.2
-    container_name: hbbr
+    logging: *bounded-logging
+    image: ghcr.io/kbytetutu/rustdesk-hbbr:${RUSTDESK_IMAGE_TAG:?}
     restart: unless-stopped
     volumes:
       - ./data:/root
+      - hbbr-control:/run/control
     ports:
       - "21117:21117"
-      - "21119:21119"
+      - "127.0.0.1:21119:21119"
     environment:
-      - RUST_LOG=info
+      RUST_LOG: info
+      CONTROL_SOCKET: /run/control/private/control.sock
+    depends_on:
+      hbbs:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "nc", "-z", "127.0.0.1", "21117"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      test:
+        - CMD-SHELL
+        - >-
+          test -S /run/control/private/control.sock &&
+          nc -z 127.0.0.1 21117
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # Short-lived exporter: API receives only the public companion file.
+  public-key:
+    image: ghcr.io/kbytetutu/rustdesk-hbbs:${RUSTDESK_IMAGE_TAG:?}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        test -s /identity/id_ed25519.pub;
+        cp /identity/id_ed25519.pub /public/id_ed25519.pub.tmp;
+        chmod 644 /public/id_ed25519.pub.tmp;
+        mv /public/id_ed25519.pub.tmp /public/id_ed25519.pub
+    volumes:
+      - ./data:/identity:ro
+      - public-key:/public
+    depends_on:
+      hbbs:
+        condition: service_healthy
 
   api:
-    image: ghcr.io/kbytetutu/rustdesk-api:0.2
-    container_name: rustdesk-api
+    logging: *bounded-logging
+    image: ghcr.io/kbytetutu/rustdesk-api:${RUSTDESK_IMAGE_TAG:?}
     restart: unless-stopped
     volumes:
-      - ./data/api:/app/data          # 数据库等
-      - ./data:/data:ro               # 只读挂载 hbbs 密钥，默认读取 /data/id_ed25519.pub
+      - ./data/api:/app/data
+      - public-key:/data:ro
+      - hbbs-control:/run/hbbs:ro
+      - hbbr-control:/run/hbbr:ro
     ports:
-      - "21114:21114"
+      - "127.0.0.1:21114:21114"
     environment:
-      - TZ=${TZ:-Asia/Shanghai}
-      # 对外地址（客户端/控制台可见），按实际域名或公网 IP 修改
-      - RUSTDESK_API_RUSTDESK_ID_SERVER=${RUSTDESK_HOST:-example.com}:21116
-      - RUSTDESK_API_RUSTDESK_RELAY_SERVER=${RUSTDESK_HOST:-example.com}:21117
-      - RUSTDESK_API_RUSTDESK_API_SERVER=http://${RUSTDESK_HOST:-example.com}:21114
-      # 可选：强制登录（需与 hbbs 一致）
-      # - RUSTDESK_API_JWT_KEY=${RUSTDESK_API_JWT_KEY}
+      TZ: ${TZ:-Asia/Shanghai}
+      RUSTDESK_API_RUSTDESK_ID_SERVER: ${RUSTDESK_HOST}:21116
+      RUSTDESK_API_RUSTDESK_RELAY_SERVER: ${RUSTDESK_HOST}:21117
+      RUSTDESK_API_RUSTDESK_API_SERVER: ${RUSTDESK_API_URL:?}
+      RUSTDESK_API_JWT_KEY: ${RUSTDESK_API_JWT_KEY:?}
+      RUSTDESK_API_ADMIN_PASSWORD: ${RUSTDESK_API_ADMIN_PASSWORD:?}
+      RUSTDESK_API_ADMIN_ID_SERVER_SOCKET: /run/hbbs/private/control.sock
+      RUSTDESK_API_ADMIN_RELAY_SERVER_SOCKET: /run/hbbr/private/control.sock
     depends_on:
-      - hbbs
+      public-key:
+        condition: service_completed_successfully
+      hbbr:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:21114/api/login-options"]
-      interval: 30s
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:21114/api/login-options
+      interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 6
+
+volumes:
+  public-key:
+  hbbs-control:
+  hbbr-control:

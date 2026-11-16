@@ -3,7 +3,9 @@ package service
 import (
 	"fmt"
 	"github.com/lejianwen/rustdesk-api/v2/model"
+	"io"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -40,50 +42,35 @@ func (is *ServerCmdService) Create(u *model.ServerCmd) error {
 }
 
 // SendCmd 发送命令
-func (is *ServerCmdService) SendCmd(port int, cmd string, arg string) (string, error) {
-	//组装命令
-	cmd = cmd + " " + arg
-	res, err := is.SendSocketCmd("v6", port, cmd)
-	if err == nil {
-		return res, nil
+func (is *ServerCmdService) SendCmd(socket string, cmd string, arg string) (string, error) {
+	if socket == "" {
+		return "", fmt.Errorf("control socket is not configured")
 	}
-	//v6连接失败，尝试v4
-	res, err = is.SendSocketCmd("v4", port, cmd)
-	if err == nil {
-		return res, nil
+	if cmd == "" || strings.ContainsAny(cmd+arg, "\r\n\x00") || len(cmd)+len(arg) > 1000 {
+		return "", fmt.Errorf("invalid control command")
 	}
-	return "", err
-}
-
-// SendSocketCmd
-func (is *ServerCmdService) SendSocketCmd(ty string, port int, cmd string) (string, error) {
-	addr := "[::1]"
-	tcp := "tcp6"
-	if ty == "v4" {
-		tcp = "tcp"
-		addr = "127.0.0.1"
-	}
-	conn, err := net.Dial(tcp, fmt.Sprintf("%s:%v", addr, port))
+	conn, err := net.DialTimeout("unix", socket, 2*time.Second)
 	if err != nil {
-		Logger.Debugf("%s connect to id server failed: %v", ty, err)
 		return "", err
 	}
 	defer conn.Close()
-	//发送命令
-	_, err = conn.Write([]byte(cmd))
+	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		return "", err
+	}
+	if _, err := io.WriteString(conn, cmd+" "+arg); err != nil {
+		return "", err
+	}
+	if err := conn.(*net.UnixConn).CloseWrite(); err != nil {
+		return "", err
+	}
+	response, err := io.ReadAll(io.LimitReader(conn, 65537))
 	if err != nil {
-		Logger.Debugf("%s send cmd failed: %v", ty, err)
 		return "", err
 	}
-	time.Sleep(100 * time.Millisecond)
-	//读取返回
-	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
-	if err != nil && err.Error() != "EOF" {
-		Logger.Debugf("%s read response failed: %v", ty, err)
-		return "", err
+	if len(response) > 65536 {
+		return "", fmt.Errorf("control response too large")
 	}
-	return string(buf[:n]), nil
+	return string(response), nil
 }
 
 func (is *ServerCmdService) Update(f *model.ServerCmd) error {

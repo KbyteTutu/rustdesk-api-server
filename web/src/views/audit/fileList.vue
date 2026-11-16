@@ -100,7 +100,7 @@
   import { useFileRepositories } from '@/views/audit/reponsitories'
   import { T } from '@/utils/i18n'
   import { sizeFormat } from '@/utils/file'
-  import { Right } from '@element-plus/icons'
+  import { Right } from '@element-plus/icons-vue'
 
   const showDirFileNum = 3
   const {

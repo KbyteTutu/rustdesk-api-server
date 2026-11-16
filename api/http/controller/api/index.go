@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/lejianwen/rustdesk-api/v2/global"
 	requstform "github.com/lejianwen/rustdesk-api/v2/http/request/api"
 	"github.com/lejianwen/rustdesk-api/v2/http/response"
 	"github.com/lejianwen/rustdesk-api/v2/model"
@@ -45,6 +46,9 @@ func (i *Index) Heartbeat(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
+	if !authorizeDevice(c, info.Id, info.Uuid) {
+		return
+	}
 	if info.Uuid == "" {
 		c.JSON(http.StatusOK, gin.H{})
 		return
@@ -54,10 +58,18 @@ func (i *Index) Heartbeat(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{})
 		return
 	}
-	//如果在40s以内则不更新
-	if time.Now().Unix()-peer.LastOnlineTime >= 30 {
-		upp := &model.Peer{RowId: peer.RowId, LastOnlineTime: time.Now().Unix(), LastOnlineIp: c.ClientIP()}
-		service.AllService.PeerService.Update(upp)
+	// 30 秒以内的心跳不重复写入。
+	now := time.Now().Unix()
+	if now-peer.LastOnlineTime >= 30 {
+		upp := &model.Peer{RowId: peer.RowId, LastOnlineTime: now, LastOnlineIp: c.ClientIP()}
+		if err := service.AllService.PeerService.Update(upp); err != nil {
+			// Avoid logging raw DB errors, device identifiers or authentication data.
+			if global.Logger != nil {
+				global.Logger.Error("heartbeat persistence failed")
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "heartbeat update failed"})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{})
 }

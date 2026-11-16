@@ -30,17 +30,24 @@ func (a *Audit) AuditConn(c *gin.Context) {
 		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
 		return
 	}
-	/*ttt := &gin.H{}
-	c.ShouldBindBodyWith(ttt, binding.JSON)
-	fmt.Println(ttt)*/
+	if !authorizeDevice(c, af.Id, af.Uuid) {
+		return
+	}
 	ac := af.ToAuditConn()
+	ac.Ip = c.ClientIP()
 	if af.Action == model.AuditActionNew {
-		service.AllService.AuditService.CreateAuditConn(ac)
+		if err := service.AllService.AuditService.CreateAuditConn(ac); err != nil {
+			c.AbortWithStatus(500)
+			return
+		}
 	} else if af.Action == model.AuditActionClose {
 		ex := service.AllService.AuditService.InfoByPeerIdAndConnId(af.Id, af.ConnId)
 		if ex.Id != 0 {
 			ex.CloseTime = time.Now().Unix()
-			service.AllService.AuditService.UpdateAuditConn(ex)
+			if err := service.AllService.AuditService.UpdateAuditConn(ex); err != nil {
+				c.AbortWithStatus(500)
+				return
+			}
 		}
 	} else if af.Action == "" {
 		ex := service.AllService.AuditService.InfoByPeerIdAndConnId(af.Id, af.ConnId)
@@ -52,7 +59,10 @@ func (a *Audit) AuditConn(c *gin.Context) {
 				SessionId: ac.SessionId,
 				Type:      ac.Type,
 			}
-			service.AllService.AuditService.UpdateAuditConn(up)
+			if err := service.AllService.AuditService.UpdateAuditConn(up); err != nil {
+				c.AbortWithStatus(500)
+				return
+			}
 		}
 	}
 	response.Success(c, "")
@@ -79,6 +89,13 @@ func (a *Audit) AuditFile(c *gin.Context) {
 	//c.ShouldBindBodyWith(ttt, binding.JSON)
 	//fmt.Println(ttt)
 	af := aff.ToAuditFile()
-	service.AllService.AuditService.CreateAuditFile(af)
+	if !authorizeDevice(c, aff.Id, aff.Uuid) {
+		return
+	}
+	af.Ip = c.ClientIP()
+	if err := service.AllService.AuditService.CreateAuditFile(af); err != nil {
+		c.AbortWithStatus(500)
+		return
+	}
 	response.Success(c, "")
 }

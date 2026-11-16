@@ -12,7 +12,10 @@ export function setToken (token) {
 }
 
 export function removeToken () {
-  return localStorage.removeItem(TokenKey)
+  for (const key of [TokenKey, 'wc-option:local:access_token', 'user_info']) {
+    localStorage.removeItem(key)
+  }
+  removeCode()
 }
 
 // 设置 code，并存储当前时间戳（单位：毫秒）
@@ -24,17 +27,18 @@ export function setCode(code) {
   localStorage.setItem(OidcCodeExpiry, expiry); // 存储过期时间戳
 }
 
-// 获取 code，如果已过期则删除并返回 null
+// 无效或到期的本地状态不能重新进入登录轮询。
 export function getCode() {
-  const expiry = localStorage.getItem(OidcCodeExpiry); // 获取过期时间戳
-  const now = Date.now(); // 当前时间戳
+  const code = localStorage.getItem(OidcCode);
+  const rawExpiry = localStorage.getItem(OidcCodeExpiry);
+  const expiry = Number(rawExpiry);
 
-  if (expiry && now > parseInt(expiry)) {
-    // 如果已过期，删除 code 和过期时间
+  if (!code || !/^[1-9][0-9]*$/.test(rawExpiry ?? '') ||
+      !Number.isSafeInteger(expiry) || expiry <= Date.now()) {
     removeCode();
     return null;
   }
-  return localStorage.getItem(OidcCode); // 返回 code（如果未过期）
+  return code;
 }
 
 // 删除 code 和过期时间

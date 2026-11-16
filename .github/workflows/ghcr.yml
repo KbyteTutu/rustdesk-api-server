@@ -11,10 +11,13 @@ env:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+
   build-rust:
+    needs: verify
     name: Build rust - ${{ matrix.job.name }}
     runs-on: ${{ matrix.job.runs }}
     strategy:
@@ -27,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
@@ -35,13 +38,13 @@ jobs:
         run: |
           docker run --rm --platform ${{ matrix.job.platform }} \
             -v "$PWD":/src -w /src rust:alpine \
-            sh -c "apk add --no-cache protoc musl-dev make perl >/dev/null && cargo build --release"
+            sh -c "apk add --no-cache protoc musl-dev make perl >/dev/null && cargo build --locked --release"
 
       - name: List binaries
         run: ls -l target/release/
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: binaries-linux-${{ matrix.job.name }}
           path: |
@@ -50,6 +53,9 @@ jobs:
             target/release/rustdesk-utils
 
   images:
+    permissions:
+      contents: read
+      packages: write
     name: Docker image - ${{ matrix.image }}
     needs: build-rust
     runs-on: ubuntu-24.04
@@ -60,11 +66,11 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Download rust binaries
         if: matrix.image != 'api'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: binaries-linux-*
           path: docker/bin
@@ -77,10 +83,10 @@ jobs:
           chmod -Rv a+x docker/bin
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -99,13 +105,14 @@ jobs:
           echo "IMAGE=${{ env.REGISTRY }}/${OWNER}/rustdesk-${{ matrix.image }}" >> $GITHUB_ENV
 
       - name: Build and push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: docker/${{ matrix.image }}.Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
+          provenance: mode=max
+          sbom: true
           build-args: |
             API_VERSION=${{ env.GIT_TAG }}
           tags: |

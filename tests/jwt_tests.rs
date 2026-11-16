@@ -1,24 +1,22 @@
-use hbb_common::tokio;
 use hbbs::jwt;
+use std::sync::Once;
 
-#[test]
-fn test_generate_token() {
-    std::env::set_var("RUSTDESK_API_JWT_KEY", "testjwt");
-    let token = jwt::generate_token(1, 3600).unwrap();
-    println!("Generated Token: {}", token);
-    assert!(!token.is_empty(), "Generated token should not be empty");
+fn configure() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| std::env::set_var("RUSTDESK_API_JWT_KEY", "test-only-key-of-at-least-32-bytes"));
 }
 
-#[tokio::test]
-async fn test_verify_token() {
-    std::env::set_var("RUSTDESK_API_JWT_KEY", "testjwt");
-    let token = jwt::generate_token(1, 2).unwrap();
-    // let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJleHAiOjE3MzY4NzA4NjF9.u5pxmwNMrYUwtkspF1FuZj-R5ANAR9WT9_dMHuQhV0Y";
-    println!("Token : {:?}, now: {:?}", token, chrono::Utc::now().timestamp());
+#[test]
+fn valid_token_roundtrip() {
+    configure();
+    let token = jwt::generate_token(1, 3600).unwrap();
+    assert!(jwt::verify_token(&token).is_ok());
+}
 
-    // hbb_common::sleep(3f32).await;
-    // println!("Token : {:?}, now: {:?}", token, chrono::Utc::now().timestamp());
-    let result = jwt::verify_token(&token);
-    println!("Token Verification Result: {:?}", result);
-    assert!(result.is_ok(), "Token should be valid");
+#[test]
+fn reject_expired_missing_identity_and_malformed_tokens() {
+    configure();
+    for token in [jwt::generate_token(1, -1).unwrap(), jwt::generate_token(0, 60).unwrap(), String::new(), "a.b.c".into()] {
+        assert!(jwt::verify_token(&token).is_err());
+    }
 }

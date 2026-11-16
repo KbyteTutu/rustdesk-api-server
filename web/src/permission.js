@@ -1,54 +1,28 @@
 import { router } from '@/router'
-import { useRouteStore } from '@/store/router'
 import { useUserStore } from '@/store/user'
 import { getToken } from '@/utils/auth'
 import { pinia } from '@/store'
-import NProgress from 'nprogress' // progress bar
+import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
-import { useAppStore } from '@/store/app' // progress bar style
+import { useAppStore } from '@/store/app'
 import { T } from '@/utils/i18n'
 
-NProgress.configure({ showSpinner: false }) // NProgress Configuration
-
+NProgress.configure({ showSpinner: false })
 const whiteList = ['/login', '/register']
-const routeStore = useRouteStore(pinia)
 const appStore = useAppStore(pinia)
 appStore.getAdminConfig()
-router.beforeEach(async (to, from, next) => {
-
-  document.title = T(to.meta?.title) + ' - ' + appStore.setting.title
+router.beforeEach(async (to) => {
+  document.title = `${T(to.meta?.title)} - ${appStore.setting.title}`
   NProgress.start()
-
-  const token = getToken()
-  if (!token) {
-    //无token，跳转到登录
-    if (whiteList.indexOf(to.path) !== -1) {
-      next()
-    } else {
-      next(`/login?redirect=${to.path}`)
-    }
-
-  } else {
-    //有token
-
+  const loginRoute = { path: '/login', query: { redirect: to.fullPath } }
+  if (getToken()) {
     const userStore = useUserStore(pinia)
-
-    if (!userStore.route_names.length) {
-      const info = await userStore.info()
-      if (!info) {
-        userStore.logout()
-        next(`/login?redirect=${to.path}`)
-      } else {
-        next({ ...to, replace: true })
-      }
-    }/* else if (to.path === '/404') {
-      next({path: to.redirectedFrom?.fullPath, replace: true})
-    }*/ else {
-      next()
-    }
+    if (userStore.route_names.length) return true
+    const info = await userStore.info()
+    if (info) return { ...to, replace: true }
+    userStore.clearSession()
+    return loginRoute
   }
+  return whiteList.includes(to.path) ? true : loginRoute
 })
-
-router.afterEach(() => {
-  NProgress.done()
-})
+router.afterEach(() => NProgress.done())

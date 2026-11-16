@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -10,7 +11,6 @@ import (
 	apiResp "github.com/lejianwen/rustdesk-api/v2/http/response/api"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"github.com/lejianwen/rustdesk-api/v2/service"
-	"github.com/lejianwen/rustdesk-api/v2/utils"
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 )
 
@@ -42,7 +42,7 @@ func (o *Oauth) OidcAuth(c *gin.Context) {
 		return
 	}
 
-	service.AllService.OauthService.SetOauthCache(state, &service.OauthCacheItem{
+	err = service.AllService.OauthService.SetOauthCache(state, &service.OauthCacheItem{
 		Action:     service.OauthActionTypeLogin,
 		Id:         f.Id,
 		Op:         f.Op,
@@ -53,7 +53,10 @@ func (o *Oauth) OidcAuth(c *gin.Context) {
 		Verifier:   verifier,
 		Nonce:      nonce,
 	}, 5*60)
-	//fmt.Println("code url", code, url)
+	if err != nil {
+		c.AbortWithStatusJSON(503, gin.H{"error": "OAuth temporarily unavailable"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"code": state,
 		"url":  url,
@@ -72,9 +75,9 @@ func (o *Oauth) OidcAuthQueryPre(c *gin.Context) (*model.User, *model.UserToken)
 	}
 
 	// 获取 OAuth 缓存
-	v := service.AllService.OauthService.GetOauthCache(q.Code)
+	v := service.AllService.OauthService.ConsumeLogin(q.Code)
 	if v == nil {
-		response.Error(c, response.TranslateMsg(c, "OauthExpired"))
+		c.JSON(http.StatusOK, gin.H{"message": "Authorization pending or expired", "error": "No authed oidc is found"})
 		return nil, nil
 	}
 
@@ -87,16 +90,14 @@ func (o *Oauth) OidcAuthQueryPre(c *gin.Context) (*model.User, *model.UserToken)
 
 	// 获取用户信息
 	u = service.AllService.UserService.InfoById(v.UserId)
-	if u == nil {
+	if !service.AllService.UserService.CheckUserEnable(u) {
 		response.Error(c, response.TranslateMsg(c, "UserNotFound"))
 		return nil, nil
 	}
 
-	// 删除 OAuth 缓存
-	service.AllService.OauthService.DeleteOauthCache(q.Code)
-
 	// 创建登录日志并生成用户令牌
-	ut = service.AllService.UserService.Login(u, &model.LoginLog{
+	var err error
+	ut, err = service.AllService.UserService.Login(u, &model.LoginLog{
 		UserId:   u.Id,
 		Client:   v.DeviceType,
 		DeviceId: v.Id,
@@ -106,7 +107,7 @@ func (o *Oauth) OidcAuthQueryPre(c *gin.Context) (*model.User, *model.UserToken)
 		Platform: v.DeviceOs,
 	})
 
-	if ut == nil {
+	if err != nil {
 		response.Error(c, response.TranslateMsg(c, "LoginFailed"))
 		return nil, nil
 	}
@@ -157,7 +158,7 @@ func (o *Oauth) OauthCallback(c *gin.Context) {
 	cacheKey := state
 	oauthService := service.AllService.OauthService
 	//从缓存中获取
-	oauthCache := oauthService.GetOauthCache(cacheKey)
+	oauthCache := oauthService.StartCallback(cacheKey)
 	if oauthCache == nil {
 		c.HTML(http.StatusOK, "oauth_fail.html", gin.H{
 			"message": "OauthExpired",
@@ -172,16 +173,17 @@ func (o *Oauth) OauthCallback(c *gin.Context) {
 	// 获取用户信息
 	code := c.Query("code")
 	err, oauthUser := oauthService.Callback(code, verifier, op, nonce)
-	if err != nil {
+	if err != nil || oauthUser == nil || oauthUser.OpenId == "" {
+		oauthService.DeleteOauthCache(cacheKey)
 		c.HTML(http.StatusOK, "oauth_fail.html", gin.H{
-			"message":     "OauthFailed",
-			"sub_message": err.Error(),
+			"message": "OauthFailed",
 		})
 		return
 	}
 	userId := oauthCache.UserId
 	openid := oauthUser.OpenId
 	if action == service.OauthActionTypeBind {
+		defer oauthService.DeleteOauthCache(cacheKey)
 
 		//fmt.Println("bind", ty, userData)
 		// 检查此openid是否已经绑定过
@@ -194,7 +196,7 @@ func (o *Oauth) OauthCallback(c *gin.Context) {
 		}
 		//绑定
 		user = service.AllService.UserService.InfoById(userId)
-		if user == nil {
+		if !service.AllService.UserService.CheckUserEnable(user) {
 			c.HTML(http.StatusOK, "oauth_fail.html", gin.H{
 				"message": "ItemNotFound",
 			})
@@ -224,9 +226,12 @@ func (o *Oauth) OauthCallback(c *gin.Context) {
 		user = service.AllService.UserService.InfoByOauthId(op, openid)
 		if user == nil {
 			oauthConfig := oauthService.InfoByOp(op)
-			if !*oauthConfig.AutoRegister {
+			if oauthConfig.AutoRegister == nil || !*oauthConfig.AutoRegister {
 				//c.String(http.StatusInternalServerError, "还未绑定用户，请先绑定")
-				oauthCache.UpdateFromOauthUser(oauthUser)
+				if !oauthService.CompleteCallback(cacheKey, oauthUser, 0) {
+					c.AbortWithStatus(http.StatusBadRequest)
+					return
+				}
 				c.Redirect(http.StatusFound, "/_admin/#/oauth/bind/"+cacheKey)
 				return
 			}
@@ -234,24 +239,18 @@ func (o *Oauth) OauthCallback(c *gin.Context) {
 			//自动注册
 			err, user = service.AllService.UserService.RegisterByOauth(oauthUser, op)
 			if err != nil {
-				c.HTML(http.StatusOK, "oauth_fail.html", gin.H{
-					"message": err.Error(),
-				})
+				oauthService.DeleteOauthCache(cacheKey)
+				c.HTML(http.StatusOK, "oauth_fail.html", gin.H{"message": "OauthFailed"})
 				return
 			}
 		}
-		oauthCache.UserId = user.Id
-		oauthService.SetOauthCache(cacheKey, oauthCache, 0)
+		if !service.AllService.UserService.CheckUserEnable(user) || !oauthService.CompleteCallback(cacheKey, oauthUser, user.Id) {
+			oauthService.DeleteOauthCache(cacheKey)
+			c.HTML(http.StatusOK, "oauth_fail.html", gin.H{"message": "UserDisabled"})
+			return
+		}
 		// 如果是webadmin，登录成功后跳转到webadmin
 		if oauthCache.DeviceType == model.LoginLogClientWebAdmin {
-			/*service.AllService.UserService.Login(u, &model.LoginLog{
-				UserId:   u.Id,
-				Client:   "webadmin",
-				Uuid:     "", //must be empty
-				Ip:       c.ClientIP(),
-				Type:     model.LoginLogTypeOauth,
-				Platform: oauthService.DeviceOs,
-			})*/
 			c.Redirect(http.StatusFound, "/_admin/#/")
 			return
 		}
@@ -286,7 +285,8 @@ func (o *Oauth) Message(c *gin.Context) {
 			ID: mp.Title,
 		})
 		if err == nil {
-			res = utils.StringConcat(";title='", title, "';")
+			encoded, _ := json.Marshal(title)
+			res = ";title=" + string(encoded) + ";"
 		}
 
 	}
@@ -295,7 +295,8 @@ func (o *Oauth) Message(c *gin.Context) {
 			ID: mp.Msg,
 		})
 		if err == nil {
-			res = utils.StringConcat(res, "msg = '", msg, "';")
+			encoded, _ := json.Marshal(msg)
+			res += "msg=" + string(encoded) + ";"
 		}
 	}
 

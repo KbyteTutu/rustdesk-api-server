@@ -90,6 +90,11 @@ func (ct *Peer) List(c *gin.Context) {
 		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError")+err.Error())
 		return
 	}
+	uuids, err := query.UUIDList()
+	if err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+		return
+	}
 	res := service.AllService.PeerService.List(query.Page, query.PageSize, func(tx *gorm.DB) {
 		if query.TimeAgo > 0 {
 			lt := time.Now().Unix() - int64(query.TimeAgo)
@@ -106,7 +111,7 @@ func (ct *Peer) List(c *gin.Context) {
 			tx.Where("hostname like ?", "%"+query.Hostname+"%")
 		}
 		if query.Uuids != "" {
-			tx.Where("uuid in (?)", query.Uuids)
+			tx.Where("uuid IN ?", uuids)
 		}
 		if query.Username != "" {
 			tx.Where("username like ?", "%"+query.Username+"%")

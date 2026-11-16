@@ -38,7 +38,7 @@ const (
 
 type Oauth struct {
 	IdModel
-	Op           string `json:"op"`
+	Op           string `json:"op" gorm:"uniqueIndex"`
 	OauthType    string `json:"oauth_type"`
 	ClientId     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
@@ -77,6 +77,9 @@ func (oa *Oauth) FormatOauthInfo() error {
 	if oauthType == OauthTypeGoogle && issuer == "" {
 		oa.Issuer = IssuerGoogle
 	}
+	if oa.AutoRegister == nil {
+		oa.AutoRegister = new(bool)
+	}
 	if oa.PkceEnable == nil {
 		oa.PkceEnable = new(bool)
 		*oa.PkceEnable = false
@@ -88,7 +91,7 @@ func (oa *Oauth) FormatOauthInfo() error {
 }
 
 type OauthUser struct {
-	OpenId        string `json:"open_id" gorm:"not null;index"`
+	OpenId        string `json:"open_id" gorm:"not null;uniqueIndex:ux_provider_subject"`
 	Name          string `json:"name"`
 	Username      string `json:"username"`
 	Email         string `json:"email"`
@@ -112,13 +115,13 @@ type OauthUserBase struct {
 
 type OidcUser struct {
 	OauthUserBase
-	Sub               string `json:"sub"`
+	Sub string `json:"sub"`
 	// VerifiedEmail is declared as json.RawMessage because some OIDC providers
 	// (e.g. Amazon Cognito) return email_verified as a JSON string ("true"/"false")
 	// instead of a JSON boolean, which violates the OIDC Core spec (section 5.1).
 	VerifiedEmail     json.RawMessage `json:"email_verified"`
-	PreferredUsername string `json:"preferred_username"`
-	Picture           string `json:"picture"`
+	PreferredUsername string          `json:"preferred_username"`
+	Picture           string          `json:"picture"`
 }
 
 func (ou *OidcUser) ToOauthUser() *OauthUser {

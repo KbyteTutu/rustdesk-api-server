@@ -74,7 +74,7 @@ func (l *Login) Login(c *gin.Context) {
 		f.DeviceInfo.Type = model.LoginLogClientWeb
 	}
 
-	ut := service.AllService.UserService.Login(u, &model.LoginLog{
+	ut, err := service.AllService.UserService.Login(u, &model.LoginLog{
 		UserId:   u.Id,
 		Client:   f.DeviceInfo.Type,
 		DeviceId: f.Id,
@@ -84,6 +84,11 @@ func (l *Login) Login(c *gin.Context) {
 		Platform: f.DeviceInfo.Os,
 	})
 
+	if err != nil {
+		response.Error(c, response.TranslateMsg(c, "LoginFailed"))
+		return
+	}
+	loginLimiter.RemoveAttempts(clientIp)
 	c.JSON(http.StatusOK, apiResp.LoginRes{
 		AccessToken: ut.Token,
 		Type:        "access_token",

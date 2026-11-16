@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use hbb_common::{log, ResultType};
 use sqlx::{
-    sqlite::SqliteConnectOptions, ConnectOptions, Connection, Error as SqlxError, SqliteConnection,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode}, ConnectOptions, Connection, Error as SqlxError, SqliteConnection,
 };
 use std::{ops::DerefMut, str::FromStr};
 //use sqlx::postgres::PgPoolOptions;
@@ -10,7 +10,7 @@ use std::{ops::DerefMut, str::FromStr};
 type Pool = deadpool::managed::Pool<DbPool>;
 
 pub struct DbPool {
-    url: String,
+    options: SqliteConnectOptions,
 }
 
 #[async_trait]
@@ -18,9 +18,7 @@ impl deadpool::managed::Manager for DbPool {
     type Type = SqliteConnection;
     type Error = SqlxError;
     async fn create(&self) -> Result<SqliteConnection, SqlxError> {
-        let mut opt = SqliteConnectOptions::from_str(&self.url).unwrap();
-        opt.log_statements(log::LevelFilter::Debug);
-        SqliteConnection::connect_with(&opt).await
+        SqliteConnection::connect_with(&self.options).await
     }
     async fn recycle(
         &self,
@@ -48,20 +46,19 @@ pub struct Peer {
 
 impl Database {
     pub async fn new(url: &str) -> ResultType<Database> {
-        if !std::path::Path::new(url).exists() {
-            std::fs::File::create(url).ok();
-        }
+        let mut options = SqliteConnectOptions::from_str(url)?
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(std::time::Duration::from_secs(5));
+        options.log_statements(log::LevelFilter::Debug);
         let n: usize = std::env::var("MAX_DATABASE_CONNECTIONS")
             .unwrap_or_else(|_| "1".to_owned())
-            .parse()
-            .unwrap_or(1);
-        log::debug!("MAX_DATABASE_CONNECTIONS={}", n);
-        let pool = Pool::new(
-            DbPool {
-                url: url.to_owned(),
-            },
-            n,
-        );
+            .parse()?;
+        if !(1..=64).contains(&n) {
+            hbb_common::bail!("MAX_DATABASE_CONNECTIONS must be between 1 and 64");
+        }
+        let pool = Pool::new(DbPool { options }, n);
         let _ = pool.get().await?; // test
         let db = Database { pool };
         db.create_tables().await?;
@@ -147,35 +144,32 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use hbb_common::tokio;
-    #[test]
-    fn test_insert() {
-        insert();
-    }
-
-    #[tokio::main(flavor = "multi_thread")]
-    async fn insert() {
-        let db = super::Database::new("test.sqlite3").await.unwrap();
+    #[tokio::test]
+    async fn database_is_repeatable_and_enforces_constraints() {
+        use std::ops::DerefMut;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("peers.sqlite3");
+        let db = super::Database::new(path.to_str().unwrap()).await.unwrap();
         let mut jobs = vec![];
-        for i in 0..10000 {
-            let cloned = db.clone();
-            let id = i.to_string();
-            let a = tokio::spawn(async move {
-                let empty_vec = Vec::new();
-                cloned
-                    .insert_peer(&id, &empty_vec, &empty_vec, "")
-                    .await
-                    .unwrap();
-            });
-            jobs.push(a);
+        for i in 0..32 {
+            let db = db.clone();
+            jobs.push(tokio::spawn(async move {
+                let id = i.to_string();
+                db.insert_peer(&id, &[1], &[2], "{}").await.unwrap();
+                assert_eq!(db.get_peer(&id).await.unwrap().unwrap().uuid, vec![1]);
+            }));
         }
-        for i in 0..10000 {
-            let cloned = db.clone();
-            let id = i.to_string();
-            let a = tokio::spawn(async move {
-                cloned.get_peer(&id).await.unwrap();
-            });
-            jobs.push(a);
+        for result in hbb_common::futures::future::join_all(jobs).await {
+            result.unwrap();
         }
-        hbb_common::futures::future::join_all(jobs).await;
+        assert!(db.insert_peer("0", &[3], &[4], "{}").await.is_err());
+        let mut conn = db.pool.get().await.unwrap();
+        let journal: String = sqlx::query_scalar("PRAGMA journal_mode").fetch_one(conn.deref_mut()).await.unwrap();
+        let foreign_keys: i64 = sqlx::query_scalar("PRAGMA foreign_keys").fetch_one(conn.deref_mut()).await.unwrap();
+        assert_eq!(journal, "wal");
+        assert_eq!(foreign_keys, 1);
+        drop(conn);
+        assert!(super::Database::new("sqlite://invalid?mode=bogus").await.is_err());
+        assert!(super::Database::new(dir.path().join("missing/db").to_str().unwrap()).await.is_err());
     }
 }

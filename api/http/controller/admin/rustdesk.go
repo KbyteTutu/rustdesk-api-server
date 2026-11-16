@@ -120,15 +120,14 @@ func (r *Rustdesk) SendCmd(c *gin.Context) {
 		return
 	}
 
-	port := 0
-	switch rc.Target {
-	case model.ServerCmdTargetIdServer:
-		port = global.Config.Admin.IdServerPort - 1
-	case model.ServerCmdTargetRelayServer:
-		port = global.Config.Admin.RelayServerPort
+	socket := global.Config.Admin.IdServerSocket
+	if rc.Target == model.ServerCmdTargetRelayServer {
+		socket = global.Config.Admin.RelayServerSocket
 	}
-
-	res, err := service.AllService.ServerCmdService.SendCmd(port, rc.Cmd, rc.Option)
+	res, err := service.AllService.ServerCmdService.SendCmd(socket, rc.Cmd, rc.Option)
+	// Arguments and responses can contain sensitive data; audit identity and outcome only.
+	global.Logger.WithField("actor_id", service.AllService.UserService.CurUser(c).Id).
+		WithField("target", rc.Target).WithField("success", err == nil).Info("server control request")
 	if err != nil {
 		response.Fail(c, 101, err.Error())
 		return

@@ -5,38 +5,23 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// EncryptPassword hashes the input password using bcrypt.
-// An error is returned if hashing fails.
+// EncryptPassword accepts 8–72 bytes, bcrypt's supported input range.
 func EncryptPassword(password string) (string, error) {
-	bs, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return "", err
+	if len(password) < 8 || len(password) > 72 {
+		return "", errors.New("password must contain 8 to 72 bytes")
 	}
-	return string(bs), nil
+	bs, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(bs), err
 }
 
-// VerifyPassword checks the input password against the stored hash.
-// When a legacy MD5 hash is provided, the password is rehashed with bcrypt
-// and the new hash is returned. Any internal bcrypt error is returned.
-func VerifyPassword(hash, input string) (bool, string, error) {
+// VerifyPassword accepts only bcrypt. Legacy hashes require an explicit reset.
+func VerifyPassword(hash, input string) (bool, error) {
+	if len(input) > 72 {
+		return false, nil
+	}
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(input))
-	if err == nil {
-		return true, "", nil
-	}
-
-	var invalidPrefixErr bcrypt.InvalidHashPrefixError
-	if errors.As(err, &invalidPrefixErr) || errors.Is(err, bcrypt.ErrHashTooShort) {
-		// Try fallback to legacy MD5 hash verification
-		if hash == Md5(input+"rustdesk-api") {
-			newHash, err2 := bcrypt.GenerateFromPassword([]byte(input), bcrypt.DefaultCost)
-			if err2 != nil {
-				return true, "", err2
-			}
-			return true, string(newHash), nil
-		}
-	}
 	if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
-		return false, "", nil
+		return false, nil
 	}
-	return false, "", err
+	return err == nil, err
 }

@@ -52,14 +52,14 @@ func (i *WebClient) ServerConfig(c *gin.Context) {
 // @Failure 500 {object} response.Response
 // @Router /shared-peer [post]
 func (i *WebClient) SharedPeer(c *gin.Context) {
-	j := &gin.H{}
-	c.ShouldBindJSON(j)
-	t := (*j)["share_token"].(string)
-	if t == "" {
-		response.Fail(c, 101, "share_token is required")
+	var input struct {
+		ShareToken string `json:"share_token" binding:"required,max=256"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid share_token"})
 		return
 	}
-	sr := service.AllService.AddressBookService.SharedPeer(t)
+	sr := service.AllService.AddressBookService.SharedPeer(input.ShareToken)
 	if sr == nil || sr.Id == 0 {
 		response.Fail(c, 101, "share not found")
 		return

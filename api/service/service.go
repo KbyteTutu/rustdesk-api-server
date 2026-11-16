@@ -7,6 +7,7 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"math"
 )
 
 type Service struct {
@@ -59,6 +60,12 @@ func Paginate(page, pageSize uint) func(db *gorm.DB) *gorm.DB {
 		}
 		if pageSize == 0 {
 			pageSize = 10
+		}
+		if pageSize > 200 {
+			pageSize = 200
+		}
+		if page-1 > uint(math.MaxInt)/pageSize {
+			return db.Where("1 = 0").Limit(0)
 		}
 		offset := (page - 1) * pageSize
 		return db.Offset(int(offset)).Limit(int(pageSize))

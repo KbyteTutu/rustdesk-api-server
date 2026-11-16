@@ -5,16 +5,21 @@ import (
 )
 
 type UserForm struct {
-	Id       uint   `json:"id"`
-	Username string `json:"username" validate:"required,gte=2,lte=32"`
-	Email    string `json:"email"` //validate:"required,email" email不强制
-	//Password string           `json:"password" validate:"required,gte=4,lte=20"`
+	Id       uint             `json:"id"`
+	Username string           `json:"username" validate:"required,gte=2,lte=32"`
+	Email    string           `json:"email"` //validate:"required,email" email不强制
 	Nickname string           `json:"nickname"`
 	Avatar   string           `json:"avatar"`
 	GroupId  uint             `json:"group_id" validate:"required"`
 	IsAdmin  *bool            `json:"is_admin" `
 	Status   model.StatusCode `json:"status" validate:"required,gte=0"`
 	Remark   string           `json:"remark"`
+}
+
+// CreateUserForm requires an explicit initial password; updates use UserForm.
+type CreateUserForm struct {
+	UserForm
+	Password string `json:"password" validate:"required,gte=8,lte=72"`
 }
 
 func (uf *UserForm) FromUser(user *model.User) *UserForm {
@@ -54,12 +59,12 @@ type UserQuery struct {
 }
 type UserPasswordForm struct {
 	Id       uint   `json:"id" validate:"required"`
-	Password string `json:"password" validate:"required,gte=4,lte=32"`
+	Password string `json:"password" validate:"required,gte=8,lte=72"`
 }
 
 type ChangeCurPasswordForm struct {
-	OldPassword string `json:"old_password" validate:"required,gte=4,lte=32"`
-	NewPassword string `json:"new_password" validate:"required,gte=4,lte=32"`
+	OldPassword string `json:"old_password" validate:"required,lte=72"`
+	NewPassword string `json:"new_password" validate:"required,gte=8,lte=72"`
 }
 type GroupUsersQuery struct {
 	IsMy   int  `json:"is_my"`
@@ -69,8 +74,8 @@ type GroupUsersQuery struct {
 type RegisterForm struct {
 	Username        string `json:"username" validate:"required,gte=2,lte=32"`
 	Email           string `json:"email"` // validate:"required,email"
-	Password        string `json:"password" validate:"required,gte=4,lte=32"`
-	ConfirmPassword string `json:"confirm_password" validate:"required,gte=4,lte=32"`
+	Password        string `json:"password" validate:"required,gte=8,lte=72"`
+	ConfirmPassword string `json:"confirm_password" validate:"required,eqfield=Password"`
 }
 
 type UserTokenBatchDeleteForm struct {

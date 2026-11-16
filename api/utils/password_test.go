@@ -1,40 +1,30 @@
 package utils
 
 import (
+	"strings"
 	"testing"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
-func TestVerifyPasswordMD5(t *testing.T) {
-	hash := Md5("secret" + "rustdesk-api")
-	ok, newHash, err := VerifyPassword(hash, "secret")
+func TestPasswordHashing(t *testing.T) {
+	hash, err := EncryptPassword("correct password")
 	if err != nil {
-		t.Fatalf("md5 verify failed: %v", err)
+		t.Fatal(err)
 	}
-	if !ok || newHash == "" {
-		t.Fatalf("md5 migration failed")
+	if ok, err := VerifyPassword(hash, "correct password"); !ok || err != nil {
+		t.Fatal("bcrypt verify failed", err)
 	}
-	if bcrypt.CompareHashAndPassword([]byte(newHash), []byte("secret")) != nil {
-		t.Fatalf("invalid rehash")
+	if ok, _ := VerifyPassword(hash, "wrong password"); ok {
+		t.Fatal("wrong password accepted")
 	}
-}
-
-func TestVerifyPasswordBcrypt(t *testing.T) {
-	b, _ := bcrypt.GenerateFromPassword([]byte("pass"), bcrypt.DefaultCost)
-	ok, newHash, err := VerifyPassword(string(b), "pass")
-	if err != nil || !ok || newHash != "" {
-		t.Fatalf("bcrypt verify failed")
+	if ok, _ := VerifyPassword(Md5("secret"+"rustdesk-api"), "secret"); ok {
+		t.Fatal("legacy MD5 accepted")
 	}
-}
-
-func TestVerifyPasswordMigrate(t *testing.T) {
-	md5hash := Md5("mypass" + "rustdesk-api")
-	ok, newHash, err := VerifyPassword(md5hash, "mypass")
-	if err != nil || !ok || newHash == "" {
-		t.Fatalf("expected bcrypt rehash")
+	for _, p := range []string{"", "short", strings.Repeat("x", 73), strings.Repeat("中", 25)} {
+		if _, err := EncryptPassword(p); err == nil {
+			t.Fatal("invalid byte length accepted")
+		}
 	}
-	if bcrypt.CompareHashAndPassword([]byte(newHash), []byte("mypass")) != nil {
-		t.Fatalf("rehash not valid bcrypt")
+	if _, err := EncryptPassword(strings.Repeat("x", 72)); err != nil {
+		t.Fatal(err)
 	}
 }

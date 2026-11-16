@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import { getToken, removeToken } from '@/utils/auth'
+import { getToken } from '@/utils/auth'
 import { useUserStore } from '@/store/user'
 import { pinia } from '@/store'
 import { useAppStore } from '@/store/app'
@@ -62,23 +62,19 @@ service.interceptors.response.use(
     }
 
     // if the custom code is not 20000, it is judged as an error.
-    if (res.code !== 0) {
-      ElMessage({
-        message: res.message || 'error',
-        type: 'error',
-        duration: 5 * 1000,
-      })
-
-      if (res.code === 403) {
-        removeToken()
-        window.location.reload()
-      }
-      return Promise.reject(res)
-    } else {
-      return res
+    if (res.code === 0) return res
+    ElMessage({ message: res.message || 'error', type: 'error', duration: 5 * 1000 })
+    if (res.code === 403) {
+      useUserStore(pinia).clearSession()
+      window.location.reload()
     }
+    return Promise.reject(res)
   },
   error => {
+    if (error.response?.status === 401) {
+      useUserStore(pinia).clearSession()
+      window.location.reload()
+    }
     if (error.code === 'ECONNABORTED'
       && error.message.indexOf('timeout') > -1) {
       error.message = 'Connection Time Out!'

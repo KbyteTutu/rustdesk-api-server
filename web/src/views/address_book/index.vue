@@ -186,7 +186,7 @@
   import { connectByClient } from '@/utils/peer'
   import { useAppStore } from '@/store/app'
   import { handleClipboard } from '@/utils/clipboard'
-  import { CopyDocument } from '@element-plus/icons'
+  import { CopyDocument } from '@element-plus/icons-vue'
   import PlatformIcons from '@/components/icons/platform.vue'
   import { loadAllUsers } from '@/global'
 

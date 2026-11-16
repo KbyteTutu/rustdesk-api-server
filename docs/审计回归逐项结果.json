@@ -1,0 +1,788 @@
+{
+  "baseline": "eb5a55d (working tree with audit fixes and new regression cases)",
+  "results": [
+    {
+      "check": "go-race",
+      "status": "FAIL",
+      "exit": 1,
+      "started_utc": "2026-11-15T03:58:09.034742+00:00",
+      "command": [
+        "/usr/bin/go",
+        "test",
+        "-mod=readonly",
+        "-count=1",
+        "-race",
+        "-json",
+        "./..."
+      ],
+      "log": "/tmp/rustdesk-audit-regression-final/go-race.log"
+    },
+    {
+      "check": "go-vet",
+      "status": "PASS",
+      "exit": 0,
+      "started_utc": "2026-11-15T03:58:20.127084+00:00",
+      "command": [
+        "/usr/bin/go",
+        "vet",
+        "-mod=readonly",
+        "./..."
+      ],
+      "log": "/tmp/rustdesk-audit-regression-final/go-vet.log"
+    },
+    {
+      "check": "go-build",
+      "status": "PASS",
+      "exit": 0,
+      "started_utc": "2026-11-15T03:58:20.342081+00:00",
+      "command": [
+        "/usr/bin/go",
+        "build",
+        "-mod=readonly",
+        "./..."
+      ],
+      "log": "/tmp/rustdesk-audit-regression-final/go-build.log"
+    },
+    {
+      "check": "web-auth",
+      "status": "FAIL",
+      "exit": 1,
+      "started_utc": "2026-11-15T03:58:21.658764+00:00",
+      "command": [
+        "node",
+        "--test",
+        "web/tests/audit-auth.test.mjs"
+      ],
+      "log": "/tmp/rustdesk-audit-regression-final/web-auth.log"
+    },
+    {
+      "check": "web-install",
+      "status": "PASS",
+      "exit": 0,
+      "started_utc": "2026-11-15T03:58:21.722484+00:00",
+      "command": [
+        "npm",
+        "ci",
+        "--no-fund"
+      ],
+      "log": "/tmp/rustdesk-audit-regression-final/web-install.log"
+    },
+    {
+      "check": "web-build",
+      "status": "PASS",
+      "exit": 0,
+      "started_utc": "2026-11-15T03:58:23.239150+00:00",
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "log": "/tmp/rustdesk-audit-regression-final/web-build.log"
+    },
+    {
+      "check": "web-audit",
+      "status": "PASS",
+      "exit": 0,
+      "started_utc": "2026-11-15T03:58:26.460743+00:00",
+      "command": [
+        "npm",
+        "audit",
+        "--audit-level=high",
+        "--json"
+      ],
+      "log": "/tmp/rustdesk-audit-regression-final/web-audit.log"
+    },
+    {
+      "check": "rust-tests",
+      "status": "PASS",
+      "exit": 0,
+      "started_utc": "2026-11-15T03:58:27.729617+00:00",
+      "command": [
+        "docker",
+        "run",
+        "--rm",
+        "--pull=never",
+        "-v",
+        "/home/tukechao/workspace/rustdesk-api-server:/src",
+        "-v",
+        "/tmp/rustdesk-audit-cargo:/cargo",
+        "-w",
+        "/src",
+        "-e",
+        "CARGO_HOME=/cargo",
+        "-e",
+        "DATABASE_URL=sqlite:///src/db_v2.sqlite3",
+        "rustdesk-audit-toolchain:20261114",
+        "sh",
+        "-c",
+        "export PATH=/usr/local/cargo/bin:$PATH; cargo test --locked"
+      ],
+      "log": "/tmp/rustdesk-audit-regression-final/rust-tests.log"
+    },
+    {
+      "check": "isolated-smoke",
+      "status": "PASS",
+      "exit": 0,
+      "started_utc": "2026-11-15T03:58:28.597388+00:00",
+      "command": [
+        "python3",
+        "scripts/audit-smoke.py"
+      ],
+      "log": "/tmp/rustdesk-audit-regression-final/isolated-smoke.log"
+    },
+    {
+      "check": "diff-check",
+      "status": "PASS",
+      "exit": 0,
+      "started_utc": "2026-11-15T03:58:30.917495+00:00",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "log": "/tmp/rustdesk-audit-regression-final/diff-check.log"
+    }
+  ],
+  "go_cases": [
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestInitMissingKeysGetDefaults/app_section_without_the_keys",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestInitMissingKeysGetDefaults/no_app_section",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestInitMissingKeysGetDefaults",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestInitFileBeatsDefaults",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestInitEnvBeatsFileAndDefault",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestInitLeavesSampleValuesOut",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestInitRejectsBareDuration",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestInitDuration",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestInitEnvDuration",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestAuditF15PublicKeyContract/valid",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestAuditF15PublicKeyContract/trimmed",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestAuditF15PublicKeyContract/bad-base64",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestAuditF15PublicKeyContract/short",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/config",
+      "test": "TestAuditF15PublicKeyContract",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/model",
+      "test": "TestOidcUser_ToOauthUser_EmailVerifiedBoolTrue",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/model",
+      "test": "TestOidcUser_ToOauthUser_EmailVerifiedBoolFalse",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/model",
+      "test": "TestOidcUser_ToOauthUser_EmailVerifiedStringTrue",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/lock",
+      "test": "TestLocalGetLockSharesSameMutex",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/model",
+      "test": "TestOidcUser_ToOauthUser_EmailVerifiedStringFalse",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/model",
+      "test": "TestOidcUser_ToOauthUser_EmailVerifiedStringCaseInsensitive",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/model",
+      "test": "TestOidcUser_ToOauthUser_EmailVerifiedNull",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/model",
+      "test": "TestOidcUser_ToOauthUser_EmailVerifiedAbsent",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/lock",
+      "test": "TestLocalLockSerializesWrites",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestFixedUniqueSessions",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestRejectInvalidConfiguration",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestRejectInvalidTokens/wrong_key",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestRejectInvalidTokens/wrong_algorithm",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/request/admin",
+      "test": "TestAuditF10UUIDQueryBoundaries/empty",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestRejectInvalidTokens/missing_exp",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/request/admin",
+      "test": "TestAuditF10UUIDQueryBoundaries/dedup-trim",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/request/admin",
+      "test": "TestAuditF10UUIDQueryBoundaries/blank-list",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestRejectInvalidTokens/missing_iat",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/request/admin",
+      "test": "TestAuditF10UUIDQueryBoundaries/max-count",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestRejectInvalidTokens/missing_jti",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/request/admin",
+      "test": "TestAuditF10UUIDQueryBoundaries/over-count",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/request/admin",
+      "test": "TestAuditF10UUIDQueryBoundaries/over-item",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/request/admin",
+      "test": "TestAuditF10UUIDQueryBoundaries/over-bytes",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestRejectInvalidTokens/missing_user_id",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/request/admin",
+      "test": "TestAuditF10UUIDQueryBoundaries",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestRejectInvalidTokens/expired",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/request/admin",
+      "test": "TestCreateUserRequiresInitialPassword",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestRejectInvalidTokens/expired#01",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/lib/jwt",
+      "test": "TestRejectInvalidTokens",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/request/api",
+      "test": "TestLoginAcceptsSupportedPasswordLengths",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/controller/api",
+      "test": "TestTelemetryRequiresExactSessionAndPeerOwner",
+      "status": "PASS",
+      "seconds": 0.01
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/controller/api",
+      "test": "TestMalformedSharedPeerInputDoesNotPanic",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/controller/api",
+      "test": "TestAuditF07HeartbeatReportsDatabaseFailure",
+      "status": "FAIL",
+      "seconds": 0.01
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/http/middleware",
+      "test": "TestAuthenticationAndAdminAuthorization",
+      "status": "PASS",
+      "seconds": 0.01
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestCaptchaWrongAnswerConsumesChallenge",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestSecurityWorkflow",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestCaptchaFlow",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestCaptchaMustFlow",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF08RejectInvalidBatchWithoutDeletingData/zero-owner",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF08RejectInvalidBatchWithoutDeletingData/nil-peer",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF08RejectInvalidBatchWithoutDeletingData/empty-id",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF08RejectInvalidBatchWithoutDeletingData/too-many-peers",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF08RejectInvalidBatchWithoutDeletingData/too-many-tags",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF08RejectInvalidBatchWithoutDeletingData",
+      "status": "PASS",
+      "seconds": 0.03
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF08EmptySyncOnlyClearsDefaultCollection",
+      "status": "PASS",
+      "seconds": 0.02
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestGetAppVersion",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestMultipleGetAppVersion",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF05OAuthExpiredAndWrongPhase",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF05OAuthEmailDoesNotMergeAndRollback",
+      "status": "PASS",
+      "seconds": 0.03
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF09PasswordRevocationRollback",
+      "status": "PASS",
+      "seconds": 1.39
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF09DeleteRollsBackEveryRelationship",
+      "status": "PASS",
+      "seconds": 0.02
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF10PaginationBoundaries/defaults",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF10PaginationBoundaries/cap",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF10PaginationBoundaries/second",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF10PaginationBoundaries/overflow",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestAuditF10PaginationBoundaries",
+      "status": "PASS",
+      "seconds": 0.04
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestDefaultCollectionIsolationAndRollback",
+      "status": "PASS",
+      "seconds": 0.02
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestLastEnabledAdminInvariant",
+      "status": "PASS",
+      "seconds": 0.02
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestUserDeletionCleansRelationshipsAndAnonymizesAudit",
+      "status": "PASS",
+      "seconds": 0.02
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestLDAPEscapingAndAccountDisable",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestLDAPNeverAdoptsExistingLocalIdentity",
+      "status": "PASS",
+      "seconds": 0.02
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestLDAPRejectsInsecureTransportAndEmptyCredentials",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestControlSocketFramingAndResponseLimit/4096",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestControlSocketFramingAndResponseLimit/65537",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestControlSocketFramingAndResponseLimit",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestControlRejectsInvalidCommands",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestLoginPersistsExactExpiryAndSessionLink",
+      "status": "PASS",
+      "seconds": 0.04
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestLoginRollsBackOnLogFailure",
+      "status": "PASS",
+      "seconds": 0.02
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestOauthFlowTransitionsAndSingleConsumption",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/service",
+      "test": "TestOauthUniqueIdentity",
+      "status": "PASS",
+      "seconds": 0.02
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestAttemptTimeout",
+      "status": "PASS",
+      "seconds": 2
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestCaptchaTimeout",
+      "status": "PASS",
+      "seconds": 3
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestBanFlow",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestBanDisableFlow",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestBanTimeout",
+      "status": "PASS",
+      "seconds": 2
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestLimiterDisabled",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestB64CaptchaFlow",
+      "status": "PASS",
+      "seconds": 0.02
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestSecurityStateCapacityFailsClosed",
+      "status": "PASS",
+      "seconds": 0.1
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestNegativeCaptchaThresholdDisablesOnlyCaptcha",
+      "status": "PASS",
+      "seconds": 0
+    },
+    {
+      "package": "github.com/lejianwen/rustdesk-api/v2/utils",
+      "test": "TestPasswordHashing",
+      "status": "PASS",
+      "seconds": 1.86
+    }
+  ],
+  "rust_results": [
+    "test peer::tests::cache_does_not_evict_active_or_inflight_peers ... ok",
+    "test rendezvous_server::handshake_tests::rejects_malformed_keys_without_panicking ... ok",
+    "test rendezvous_server::handshake_tests::opens_valid_key ... ok",
+    "test common::key_tests::identity_is_persistent_and_invalid_keys_fail_closed ... ok",
+    "test database::tests::database_is_repeatable_and_enforces_constraints ... ok",
+    "test peer::tests::concurrent_registration_shares_identity_and_failure_is_not_published ... ok",
+    "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+    "test common::key_tests::identity_is_persistent_and_invalid_keys_fail_closed ... ok",
+    "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test valid_token_roundtrip ... ok",
+    "test reject_expired_missing_identity_and_malformed_tokens ... ok",
+    "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+  ],
+  "web_auth_failures": [
+    "missing expiry: actual stale-state, expected null",
+    "malformed expiry: actual stale-state, expected null",
+    "trailing-junk expiry: actual stale-state, expected null"
+  ],
+  "heartbeat_failure": "database write failed but HTTP 200 acknowledged success: {}",
+  "npm_audit": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "dependencies": {
+      "prod": 85,
+      "dev": 168,
+      "optional": 53,
+      "peer": 59,
+      "peerOptional": 0,
+      "total": 252
+    }
+  },
+  "smoke": {
+    "result": "PASS",
+    "checks": [
+      "private key mode 0600",
+      "hbbs socket dir mode 0700",
+      "hbbs socket mode 0600",
+      "hbbr socket dir mode 0700",
+      "hbbr socket mode 0600",
+      "empty data startup",
+      "admin login",
+      "JWT login",
+      "admin user/current",
+      "anonymous control denied",
+      "admin rustdesk/sendCmd",
+      "admin rustdesk/sendCmd",
+      "MUST_LOGIN enabled",
+      "admin rustdesk/sendCmd",
+      "admin rustdesk/sendCmd",
+      "aur does not alter relay list",
+      "admin rustdesk/sendCmd",
+      "hbbr control response",
+      "admin user/create",
+      "admin user/list?username=smoke-user",
+      "admin user/changePwd",
+      "admin login",
+      "ordinary user control denied",
+      "native login with 48-byte password",
+      "anonymous telemetry denied",
+      "mismatched telemetry denied",
+      "admin logout",
+      "logout revokes API session",
+      "no JWT secret/password/token in startup and request logs"
+    ],
+    "count": 29
+  }
+}

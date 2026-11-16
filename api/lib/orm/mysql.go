@@ -1,7 +1,6 @@
 package orm
 
 import (
-	"fmt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -36,11 +35,11 @@ func NewMysql(mysqlConf *MysqlConfig, logwriter logger.Writer) *gorm.DB {
 		),
 	})
 	if err != nil {
-		fmt.Println(err)
+		panic("initialize MySQL database failed")
 	}
 	sqlDB, err2 := db.DB()
 	if err2 != nil {
-		fmt.Println(err2)
+		panic("obtain MySQL connection pool failed")
 	}
 	// SetMaxIdleConns 设置空闲连接池中连接的最大数量
 	sqlDB.SetMaxIdleConns(mysqlConf.MaxIdleConns)

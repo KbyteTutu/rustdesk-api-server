@@ -1,92 +1,50 @@
 package lock
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 )
 
-func TestLocal_GetLock(t *testing.T) {
+func TestLocalGetLockSharesSameMutex(t *testing.T) {
 	l := NewLocal()
-	wg := sync.WaitGroup{}
-	wg.Add(3)
-	var l1 *sync.Mutex
-	var l2 *sync.Mutex
-	var l3 *sync.Mutex
-	i := 0
-	go func() {
-		l1 = l.GetLock("key")
-		fmt.Println("l1", l1, i)
-		l1.Lock()
-		fmt.Println("l1", i)
-		i++
-		l1.Unlock()
-		wg.Done()
-	}()
-	go func() {
-		l2 = l.GetLock("key")
-		fmt.Println("l2", l2, i)
-		l2.Lock()
-		fmt.Println("l2", i)
-		i++
-		l2.Unlock()
-		wg.Done()
-	}()
-	go func() {
-		l3 = l.GetLock("key")
-		fmt.Println("l3", l3, i)
-		l3.Lock()
-		fmt.Println("l3", i)
-		i++
-		l3.Unlock()
-		wg.Done()
-	}()
-	wg.Wait()
-
-	fmt.Println(l1, l2, l3)
-	fmt.Println(l1 == l2, l2 == l3)
-	fmt.Println(&sync.Mutex{} == &sync.Mutex{})
-}
-
-func TestLocal_Lock(t *testing.T) {
-	l := NewLocal()
-	wg := sync.WaitGroup{}
-	m := 10
-	wg.Add(m)
-	i := 0
-	for j := 0; j < m; j++ {
-		go func() {
-			l.Lock("key")
-			//fmt.Println(j, i)
-			i++
-			fmt.Println(j, i)
-			l.UnLock("key")
-			wg.Done()
-		}()
+	const workers = 32
+	locks := make([]*sync.Mutex, workers)
+	var wg sync.WaitGroup
+	count := 0
+	for i := range locks {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			locks[i] = l.GetLock("key")
+			locks[i].Lock()
+			count++
+			locks[i].Unlock()
+		}(i)
 	}
-
 	wg.Wait()
-	fmt.Println(i)
-
+	if count != workers {
+		t.Fatalf("count=%d", count)
+	}
+	for _, mutex := range locks {
+		if mutex != locks[0] {
+			t.Fatal("same key has different mutexes")
+		}
+	}
+	if l.GetLock("other") == locks[0] {
+		t.Fatal("different keys share mutex")
+	}
 }
-func TestSyncMap(t *testing.T) {
-	m := sync.Map{}
-	wg := sync.WaitGroup{}
-	wg.Add(3)
-	go func() {
-		v, ok := m.LoadOrStore("key", 1)
-		fmt.Println(1, v, ok)
-		wg.Done()
-	}()
-	go func() {
-		v, ok := m.LoadOrStore("key", 2)
-		fmt.Println(2, v, ok)
-		wg.Done()
-	}()
-	go func() {
-		v, ok := m.LoadOrStore("key", 3)
-		fmt.Println(3, v, ok)
-		wg.Done()
-	}()
+
+func TestLocalLockSerializesWrites(t *testing.T) {
+	l := NewLocal()
+	var wg sync.WaitGroup
+	count := 0
+	for j := 0; j < 32; j++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); l.Lock("key"); count++; l.UnLock("key") }()
+	}
 	wg.Wait()
+	if count != 32 {
+		t.Fatalf("count=%d", count)
+	}
 }

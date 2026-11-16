@@ -25,11 +25,11 @@ type App struct {
 	BanThreshold     int           `mapstructure:"ban-threshold"`
 }
 type Admin struct {
-	Title           string `mapstructure:"title"`
-	Hello           string `mapstructure:"hello"`
-	HelloFile       string `mapstructure:"hello-file"`
-	IdServerPort    int    `mapstructure:"id-server-port"`
-	RelayServerPort int    `mapstructure:"relay-server-port"`
+	Title             string `mapstructure:"title"`
+	Hello             string `mapstructure:"hello"`
+	HelloFile         string `mapstructure:"hello-file"`
+	IdServerSocket    string `mapstructure:"id-server-socket"`
+	RelayServerSocket string `mapstructure:"relay-server-socket"`
 }
 type Config struct {
 	Lang       string `mapstructure:"lang"`
@@ -40,22 +40,10 @@ type Config struct {
 	Postgresql Postgresql
 	Gin        Gin
 	Logger     Logger
-	Redis      Redis
-	Cache      Cache
-	Oss        Oss
 	Jwt        Jwt
 	Rustdesk   Rustdesk
 	Proxy      Proxy
 	Ldap       Ldap
-}
-
-func (a *Admin) Init() {
-	if a.IdServerPort == 0 {
-		a.IdServerPort = DefaultIdServerPort
-	}
-	if a.RelayServerPort == 0 {
-		a.RelayServerPort = DefaultRelayServerPort
-	}
 }
 
 // Init 初始化配置
@@ -67,8 +55,7 @@ func Init(rowVal *Config, path string) *viper.Viper {
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	v.SetEnvPrefix("RUSTDESK_API")
-	// An older config.yaml lacks these, and their zero values break logins.
-	// Don't default from conf/config.yaml: much of it is placeholders.
+	// Security defaults are independent of deployment-specific sample values.
 	v.SetDefault("app.captcha-threshold", 3)
 	v.SetDefault("app.token-expire", "168h")
 	v.SetConfigFile(path)
@@ -77,33 +64,15 @@ func Init(rowVal *Config, path string) *viper.Viper {
 	if err != nil {
 		panic(fmt.Errorf("Fatal error config file: %s \n", err))
 	}
-	/*
-		v.WatchConfig()
-
-
-			//监听配置修改没什么必要
-			v.OnConfigChange(func(e fsnotify.Event) {
-				//配置文件修改监听
-				fmt.Println("config file changed:", e.Name)
-				if err2 := v.Unmarshal(rowVal); err2 != nil {
-					fmt.Println(err2)
-				}
-				rowVal.Rustdesk.LoadKeyFile()
-				rowVal.Rustdesk.ParsePort()
-			})
-	*/
-	// Older releases shipped these as a bare number of seconds, which decodes
-	// as nanoseconds. A second or more of nanoseconds already works, so it stays.
-	for _, k := range []string{"app.token-expire", "jwt.expire-duration"} {
-		if n, ok := v.Get(k).(int); ok && n > 0 && time.Duration(n) < time.Second {
-			v.Set(k, time.Duration(n)*time.Second)
-		}
+	if _, ok := v.Get("app.token-expire").(string); !ok {
+		panic("app.token-expire must be a duration string, e.g. 168h")
 	}
 	if err := v.Unmarshal(rowVal); err != nil {
 		panic(fmt.Errorf("Fatal error config: %s \n", err))
 	}
-	rowVal.Rustdesk.LoadKeyFile()
-	rowVal.Admin.Init()
+	if err := rowVal.Rustdesk.LoadKeyFile(); err != nil {
+		panic(err)
+	}
 	return v
 }
 

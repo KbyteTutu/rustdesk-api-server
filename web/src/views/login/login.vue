@@ -88,12 +88,15 @@
   })
 
   const captchaCode = ref('')
-  const redirect = route.query?.redirect
+  const requestedRedirect = route.query?.redirect
+  const redirect = typeof requestedRedirect === 'string'
+    && requestedRedirect.startsWith('/') && !requestedRedirect.startsWith('//')
+    && !/[\\\\\u0000-\u0020]/.test(requestedRedirect) ? requestedRedirect : '/'
   const login = async () => {
     const res = await userStore.login(form).catch(e => e)
     if (!res.code) {
       ElMessage.success(T('LoginSuccess'))
-      router.push({ path: redirect || '/', replace: true })
+      router.replace(redirect)
       return
     }
     if (res.code === 110) {
@@ -104,7 +107,6 @@
 
   const loadCaptcha = async () => {
     const captchaRes = await captcha().catch(_ => false)
-    console.log(captchaRes)
     captchaCode.value = captchaRes.data.captcha
     form.captcha_id = captchaRes.data.captcha.id
   }
@@ -161,7 +163,7 @@
         // 删除code，确保跳转之前对code进行清楚
         removeCode()
         ElMessage.success(T('LoginSuccess'))
-        router.push({ path: redirect || '/', replace: true })
+        router.replace(redirect)
       }
     } else {
       // 如果code不存在, 现实登陆页面

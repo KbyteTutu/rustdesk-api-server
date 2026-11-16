@@ -1,5 +1,5 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
-import { current, login } from '@/api/user'
+import { current, login, logout as logoutRequest } from '@/api/user'
 import { setToken, removeToken, setCode, removeCode } from '@/utils/auth'
 import { useRouteStore } from '@/store/router'
 import { useAppStore } from '@/store/app'
@@ -18,13 +18,19 @@ export const useUserStore = defineStore({
   }),
 
   actions: {
-    logout () {
+    clearSession () {
       removeToken()
-      removeCode()
-      this.$patch({
-        name: '',
-        role: {},
-      })
+      this.$reset()
+    },
+
+    async logout () {
+      try {
+        await logoutRequest()
+      } catch {
+        // Local credentials must be removed even when the server is unreachable.
+      } finally {
+        this.clearSession()
+      }
     },
 
     saveUserData (userData) {
@@ -42,7 +48,6 @@ export const useUserStore = defineStore({
 
     async login (form) {
       const res = await login(form).catch(e => e)
-      console.log('login', res)
       if (!res.code) {
         useAppStore().loadConfig()
         const userData = res.data
@@ -83,7 +88,7 @@ export const useUserStore = defineStore({
         const { code, url } = res.data
         setCode(code)
         if (provider == 'webauth') {
-          window.open(url)
+          window.open(url, '_blank', 'noopener,noreferrer')
         } else {
           window.location.href = url
         }

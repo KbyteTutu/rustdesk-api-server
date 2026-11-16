@@ -3,17 +3,6 @@
     <el-form-item :label="T('ID')" prop="id" required>
       {{ formData.id }}
     </el-form-item>
-    <!--    <el-form-item :label="T('PasswordType')">
-          <div>
-            <el-radio-group v-model="formData.password_type" @change="changePwdType">
-              <el-radio value="once">{{ T('OncePassword') }}</el-radio>
-              <el-radio value="fixed">{{ T('FixedPassword') }}</el-radio>
-            </el-radio-group>
-            <div v-if="formData.password_type==='fixed'" style="color: red">
-              {{ T('FixedPasswordWarning') }}
-            </div>
-          </div>
-        </el-form-item>-->
     <el-form-item :label="T('Password')" prop="password" required>
       <el-input v-model="formData.password" type="password" show-password></el-input>
     </el-form-item>
@@ -46,11 +35,9 @@
   import { T } from '@/utils/i18n'
   import { computed, reactive, ref, watch } from 'vue'
   import { getV2ShareUrl } from '@/utils/webclient'
-  import * as sha256 from 'fast-sha256'
   import { shareByWebClient } from '@/api/address_book'
-  import { CopyDocument } from '@element-plus/icons'
+  import { CopyDocument } from '@element-plus/icons-vue'
   import { handleClipboard } from '@/utils/clipboard'
-  import { ElMessageBox } from 'element-plus'
 
   const props = defineProps({
     id: String,
@@ -68,7 +55,6 @@
     init()
   })
   const init = () => {
-    console.log('init')
     formData.id = props.id
     formData.hash = props.hash
     formData.password = ''
@@ -86,14 +72,6 @@
     { label: T('Months', { param: 1 }, 1), value: 2592000 },
     { label: T('Forever'), value: 0 },
   ])
-  const changePwdType = (val) => {
-    if (val === 'fixed' && !formData.password) {
-      formData.password = props.hash
-    }
-    if (val === 'once') {
-      formData.password = ''
-    }
-  }
   const cancel = () => {
     loading.value = false
     emits('cancel')
@@ -106,18 +84,6 @@
     }
     loading.value = true
     const _formData = { ...formData }
-    /*if (formData.password !== formData.hash) {
-      const res = await getPeerSlat(formData.id).catch(e => {
-        ElMessageBox.alert(T('Timeout'), T('Error'))
-        return false
-      })
-      if (!res) {
-        loading.value = false
-        return
-      }
-      const p = hash([formData.password, res.salt])
-      _formData.password = btoa(p.toString().split(',').map((v) => String.fromCharCode(v)).join(''))
-    }*/
     const res = await shareByWebClient(_formData).catch(_ => false)
     if (res) {
       link.value = getV2ShareUrl(res.data.share_token)
@@ -130,16 +96,6 @@
     handleClipboard(link.value, e)
   }
 
-  const hash = (datas) => {
-    const hasher = new sha256.Hash()
-    datas.forEach((data) => {
-      if (typeof data == 'string') {
-        data = new TextEncoder().encode(data)
-      }
-      hasher.update(data)
-    })
-    return hasher.digest()
-  }
 
 </script>
 

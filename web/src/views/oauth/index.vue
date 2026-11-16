@@ -45,10 +45,10 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="formData.oauth_type === 'oidc'" label="IdP" prop="op">
-          <el-input v-model="formData.op" :placeholder="T('Your IdP Name')"></el-input>
+          <el-input v-model="formData.op" :disabled="!!formData.id" :placeholder="T('Your IdP Name')"></el-input>
         </el-form-item>
         <el-form-item v-if="formData.oauth_type === 'oidc'" label="Issuer" prop="issuer">
-          <el-input v-model="formData.issuer" :placeholder="`${T('Check your IdP docs, without')} '/.well-known/openid-configuration'`"></el-input>
+          <el-input v-model="formData.issuer" :disabled="!!formData.id" :placeholder="`${T('Check your IdP docs, without')} '/.well-known/openid-configuration'`"></el-input>
         </el-form-item>
         <el-form-item v-show="formData.oauth_type === 'oidc'" label="Scopes" prop="scopes">
           <el-input v-model="formData.scopes" :placeholder="`${T('Optional, default is')} 'openid,profile,email'`"></el-input>
@@ -107,7 +107,7 @@
   import { T } from '@/utils/i18n'
   import { handleClipboard } from '@/utils/clipboard'
   import { useAppStore } from '@/store/app'
-  import { CopyDocument } from '@element-plus/icons'
+  import { CopyDocument } from '@element-plus/icons-vue'
 
   const app = useAppStore()
 
@@ -184,7 +184,9 @@
   })
   const rules = {
     client_id: [{ required: true, message: T('ParamRequired', { param: 'client_id' }), trigger: 'blur' }],
-    client_secret: [{ required: true, message: T('ParamRequired', { param: 'client_secret' }), trigger: 'blur' }],
+    client_secret: [{ validator: (_rule, value, callback) => {
+      callback(!formData.id && !value ? new Error(T('ParamRequired', { param: 'client_secret' })) : undefined)
+    }, trigger: 'blur' }],
     // redirect_url: [{ required: true, message: T('ParamRequired', { param: 'redirect_url' }), trigger: 'blur' }],
     oauth_type: [{ required: true, message: T('ParamRequired', { param: 'oauth_type' }), trigger: 'blur' }],
     issuer: [{ required: true, message: T('ParamRequired', { param: 'issuer' }), trigger: 'blur' }],

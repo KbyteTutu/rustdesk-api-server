@@ -74,8 +74,9 @@ fn validate_keypair(pk: &str, sk: &str) -> ResultType<()> {
 
 fn doctor_tcp(address: std::net::IpAddr, port: &str, desc: &str) {
     let start = std::time::Instant::now();
-    let conn = format!("{address}:{port}");
-    if let Ok(_stream) = TcpStream::connect(conn.as_str()) {
+    let Ok(port_number) = port.parse::<u16>() else { return };
+    let conn = std::net::SocketAddr::new(address, port_number);
+    if let Ok(_stream) = TcpStream::connect_timeout(&conn, std::time::Duration::from_secs(3)) {
         let elapsed = std::time::Instant::now().duration_since(start);
         println!(
             "TCP Port {} ({}): OK in {} ms",
@@ -95,8 +96,8 @@ fn doctor_ip(server_ip_address: std::net::IpAddr, server_address: Option<&str>) 
 
     // reverse dns lookup
     // TODO: (check) doesn't seem to do reverse lookup on OSX...
-    let reverse = lookup_addr(&server_ip_address).unwrap();
-    if let Some(server_address) = server_address {
+    let reverse = lookup_addr(&server_ip_address);
+    if let (Ok(reverse), Some(server_address)) = (reverse, server_address) {
         if reverse == server_address {
             println!("Reverse DNS lookup: '{reverse}' MATCHES server address");
         } else {
@@ -129,7 +130,13 @@ fn doctor(server_address_unclean: &str) {
         doctor_ip(server_ipaddr, None);
     } else {
         // the passed string is not an ip address
-        let ips: Vec<std::net::IpAddr> = lookup_host(server_address).unwrap();
+        let ips = match lookup_host(server_address) {
+            Ok(ips) => ips,
+            Err(err) => {
+                eprintln!("DNS lookup failed: {err}");
+                return;
+            }
+        };
         println!("Found {} IP addresses: ", ips.len());
 
         ips.iter().for_each(|ip| println!(" - {ip}"));

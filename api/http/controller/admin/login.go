@@ -86,7 +86,7 @@ func (ct *Login) Login(c *gin.Context) {
 		return
 	}
 
-	ut := service.AllService.UserService.Login(u, &model.LoginLog{
+	ut, err := service.AllService.UserService.Login(u, &model.LoginLog{
 		UserId:   u.Id,
 		Client:   model.LoginLogClientWebAdmin,
 		Uuid:     "", //must be empty
@@ -94,6 +94,11 @@ func (ct *Login) Login(c *gin.Context) {
 		Type:     model.LoginLogTypeAccount,
 		Platform: f.Platform,
 	})
+
+	if err != nil {
+		response.Fail(c, 101, response.TranslateMsg(c, "LoginFailed"))
+		return
+	}
 
 	// 登录成功，清除登录限制
 	loginLimiter.RemoveAttempts(clientIp)
@@ -197,7 +202,7 @@ func (ct *Login) OidcAuth(c *gin.Context) {
 		return
 	}
 
-	service.AllService.OauthService.SetOauthCache(state, &service.OauthCacheItem{
+	err = service.AllService.OauthService.SetOauthCache(state, &service.OauthCacheItem{
 		Action:     service.OauthActionTypeLogin,
 		Op:         f.Op,
 		Id:         f.Id,
@@ -208,6 +213,10 @@ func (ct *Login) OidcAuth(c *gin.Context) {
 		Verifier: verifier,
 		Nonce:    nonce,
 	}, 5*60)
+	if err != nil {
+		c.AbortWithStatusJSON(503, gin.H{"error": "OAuth temporarily unavailable"})
+		return
+	}
 
 	response.Success(c, gin.H{
 		"code": state,

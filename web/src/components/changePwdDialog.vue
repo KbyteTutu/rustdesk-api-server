@@ -109,7 +109,7 @@
       autofocus: true,
       confirmButtonText: 'OK',
       callback: (action) => {
-        userStore.logout()
+        userStore.clearSession()
         window.location.reload()
       },
     })

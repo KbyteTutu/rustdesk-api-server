@@ -220,6 +220,9 @@ impl RendezvousServer {
                     .to_uppercase()
                     == "Y")
         {
+            if jwt::SECRET.len() < 32 {
+                hbb_common::bail!("RUSTDESK_API_JWT_KEY must contain at least 32 bytes");
+            }
             MUST_LOGIN.store(true, Ordering::SeqCst);
         }
 
@@ -253,6 +256,16 @@ impl RendezvousServer {
                 }
             });
         };
+        #[cfg(unix)]
+        if let Some(listener) = crate::common::control_listener()? {
+            let control = rs.clone();
+            tokio::spawn(async move {
+                allow_err!(crate::common::serve_control(listener, move |command| {
+                    let mut control = control.clone();
+                    async move { control.check_cmd(&command).await }
+                }).await);
+            });
+        }
         let main_task = async move {
             loop {
                 log::info!("Start");
@@ -613,21 +626,19 @@ impl RendezvousServer {
                     }
                 }
                 Some(rendezvous_message::Union::KeyExchange(ex)) => {
-                    log::trace!("KeyExchange {:?} <- bytes: {:?}", addr, hex::encode(&bytes));
-                    if ex.keys.len() != 2 {
+                    // WebSocket clients use TLS, not the TCP application-layer handshake.
+                    if ws || ex.keys.len() != 2 || ex.keys[0].len() != 32 || ex.keys[1].len() != 48 {
                         log::error!("Handshake failed: invalid phase 2 key exchange message");
                         return false;
                     }
-                    log::trace!("KeyExchange their_pk: {:?}", hex::encode(&ex.keys[0]));
-                    log::trace!("KeyExchange box: {:?}", hex::encode(&ex.keys[1]));
-                    let their_pk: [u8; 32] = ex.keys[0].to_vec().try_into().unwrap();
-                    let cryptobox: [u8; 48] = ex.keys[1].to_vec().try_into().unwrap();
-                    let symetric_key = get_symetric_key_from_msg(
+                    let symetric_key = match get_symetric_key_from_msg(
                         self.inner.secure_tcp_sk_b.0,
-                        their_pk,
-                        &cryptobox,
-                    );
-                    log::debug!("KeyExchange symetric key: {:?}", hex::encode(&symetric_key));
+                        &ex.keys[0],
+                        &ex.keys[1],
+                    ) {
+                        Ok(key) => key,
+                        Err(_) => return false,
+                    };
                     let key = secretbox::Key::from_slice(&symetric_key);
                     match key {
                         Some(key) => {
@@ -683,7 +694,7 @@ impl RendezvousServer {
         addr: SocketAddr,
         ws: bool,
     ) -> Result<register_pk_response::Result, register_pk_response::Result> {
-        if rk.uuid.is_empty() || rk.pk.is_empty() {
+        if rk.uuid.is_empty() || rk.uuid.len() > 128 || rk.pk.len() != sign::PUBLICKEYBYTES || rk.id.len() > 100 {
             return Err(INVALID_ID_FORMAT);
         }
         let id = rk.id;
@@ -695,7 +706,7 @@ impl RendezvousServer {
             return Err(TOO_FREQUENT);
             //return Err(send_rk_res(socket, addr, TOO_FREQUENT).await);
         }
-        let peer = self.pm.get_or(&id).await;
+        let peer = self.pm.get_or(&id).await.map_err(|_| register_pk_response::Result::SERVER_ERROR)?;
         let (changed, ip_changed) = {
             let peer = peer.read().await;
             if peer.uuid.is_empty() {
@@ -752,19 +763,21 @@ impl RendezvousServer {
                     ips.insert(ip.clone(), 1);
                 } else if let Some(v) = ips.get_mut(&ip) {
                     *v += 1;
-                } else {
+                } else if ips.len() < 64 {
                     ips.insert(ip.clone(), 1);
                 }
             } else {
-                lock.insert(
-                    id.clone(),
-                    (Instant::now(), HashMap::from([(ip.clone(), 1)])),
-                );
+                if lock.len() >= MAX_TRACKED_ENTRIES {
+                    lock.retain(|_, (tm, _)| tm.elapsed().as_secs() < IP_CHANGE_DUR_X2);
+                }
+                if lock.len() < MAX_TRACKED_ENTRIES {
+                    lock.insert(id.clone(), (Instant::now(), HashMap::from([(ip.clone(), 1)])));
+                }
             }
         }
         if changed || ws {
-            // update peer info，解决tcp过程中不更新在线时间的问题
-            self.pm.update_pk(id, peer, addr, rk.uuid, rk.pk, ip).await;
+            let result = self.pm.update_pk(id, peer, addr, rk.uuid, rk.pk, ip).await;
+            if result != register_pk_response::Result::OK { return Err(result); }
         }
         Ok(register_pk_response::Result::OK)
         // let mut msg_out = RendezvousMessage::new();
@@ -907,7 +920,7 @@ impl RendezvousServer {
                     ..Default::default()
                 });
                 return Ok((msg_out, None));
-            } else if !jwt::SECRET.is_empty() {
+            } else {
                 let token = ph.token;
                 let token = jwt::verify_token(token.as_str());
                 if token.is_err() {
@@ -1096,18 +1109,20 @@ impl RendezvousServer {
             counter.1 = now;
 
             let counter = &mut old.1;
-            let is_new = counter.0.get(id).is_none();
             if counter.1.elapsed().as_secs() > DAY_SECONDS {
                 counter.0.clear();
-            } else if counter.0.len() > 300 {
-                return !is_new;
             }
-            if is_new {
+            if !counter.0.contains(id) {
+                if counter.0.len() >= 300 { return false; }
                 counter.0.insert(id.to_owned());
             }
             counter.1 = now;
         } else {
-            lock.insert(ip.to_owned(), ((0, now), (Default::default(), now)));
+            if lock.len() >= MAX_TRACKED_ENTRIES {
+                lock.retain(|_, (a, b)| a.1.elapsed().as_secs() <= IP_BLOCK_DUR || b.1.elapsed().as_secs() <= DAY_SECONDS);
+            }
+            if lock.len() >= MAX_TRACKED_ENTRIES { return false; }
+            lock.insert(ip.to_owned(), ((1, now), (std::collections::HashSet::from([id.to_owned()]), now)));
         }
         true
     }
@@ -1243,12 +1258,11 @@ impl RendezvousServer {
             }
             Some("always-use-relay" | "aur") => {
                 if let Some(rs) = fds.next() {
-                    if rs.to_uppercase() == "Y" {
-                        ALWAYS_USE_RELAY.store(true, Ordering::SeqCst);
-                    } else {
-                        ALWAYS_USE_RELAY.store(false, Ordering::SeqCst);
+                    match rs {
+                        "Y" => ALWAYS_USE_RELAY.store(true, Ordering::SeqCst),
+                        "N" => ALWAYS_USE_RELAY.store(false, Ordering::SeqCst),
+                        _ => return "Expected Y or N".to_owned(),
                     }
-                    self.tx.send(Data::RelayServers0(rs.to_owned())).ok();
                 } else {
                     let _ = writeln!(
                         res,
@@ -1272,10 +1286,11 @@ impl RendezvousServer {
             }
             Some("must-login" | "ml") => {
                 if let Some(rs) = fds.next() {
-                    if rs.to_uppercase() == "Y" {
-                        MUST_LOGIN.store(true, Ordering::SeqCst);
-                    } else {
-                        MUST_LOGIN.store(false, Ordering::SeqCst);
+                    match rs {
+                        "Y" if jwt::SECRET.len() >= 32 => MUST_LOGIN.store(true, Ordering::SeqCst),
+                        "Y" => return "RUSTDESK_API_JWT_KEY must contain at least 32 bytes".to_owned(),
+                        "N" => MUST_LOGIN.store(false, Ordering::SeqCst),
+                        _ => return "Expected Y or N".to_owned(),
                     }
                 } else {
                     let _ = writeln!(res, "MUST_LOGIN: {:?}", MUST_LOGIN.load(Ordering::SeqCst));
@@ -1288,20 +1303,6 @@ impl RendezvousServer {
 
     async fn handle_listener2(&self, stream: TcpStream, addr: SocketAddr) {
         let mut rs = self.clone();
-        let ip = try_into_v4(addr).ip();
-        if ip.is_loopback() {
-            tokio::spawn(async move {
-                let mut stream = stream;
-                let mut buffer = [0; 1024];
-                if let Ok(Ok(n)) = timeout(1000, stream.read(&mut buffer[..])).await {
-                    if let Ok(data) = std::str::from_utf8(&buffer[..n]) {
-                        let res = rs.check_cmd(data).await;
-                        stream.write(res.as_bytes()).await.ok();
-                    }
-                }
-            });
-            return;
-        }
         let stream = FramedStream::from(stream, addr);
         tokio::spawn(async move {
             let mut stream = stream;
@@ -1339,29 +1340,14 @@ impl RendezvousServer {
     async fn handle_listener_inner(
         &mut self,
         stream: TcpStream,
-        mut addr: SocketAddr,
+        addr: SocketAddr,
         key: &str,
         ws: bool,
     ) -> ResultType<()> {
         let mut sink;
         if ws {
-            use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
-            let callback = |req: &Request, response: Response| {
-                let headers = req.headers();
-                let real_ip = headers
-                    .get("X-Real-IP")
-                    .or_else(|| headers.get("X-Forwarded-For"))
-                    .and_then(|header_value| header_value.to_str().ok());
-                if let Some(ip) = real_ip {
-                    if ip.contains('.') {
-                        addr = format!("{ip}:0").parse().unwrap_or(addr);
-                    } else {
-                        addr = format!("[{ip}]:0").parse().unwrap_or(addr);
-                    }
-                }
-                Ok(response)
-            };
-            let ws_stream = tokio_tungstenite::accept_hdr_async(stream, callback).await?;
+            // Client-supplied forwarding headers are not an authenticated IP source.
+            let ws_stream = tokio_tungstenite::accept_async(stream).await?;
             let (a, mut b) = ws_stream.split();
             sink = Some(Sink::Wss(SafeWsSink {
                 sink: a,
@@ -1603,19 +1589,41 @@ async fn create_tcp_listener(port: i32) -> ResultType<TcpListener> {
 
 fn get_symetric_key_from_msg(
     our_sk_b: [u8; 32],
-    their_pk_b: [u8; 32],
-    sealed_value: &[u8; 48],
-) -> [u8; 32] {
-    let their_pk_b = box_::PublicKey(their_pk_b);
+    their_pk_b: &[u8],
+    sealed_value: &[u8],
+) -> Result<[u8; 32], &'static str> {
+    let their_pk_b = box_::PublicKey::from_slice(their_pk_b).ok_or("Invalid public key length")?;
+    if sealed_value.len() != 32 + box_::MACBYTES {
+        return Err("Invalid sealed key length");
+    }
     let nonce = box_::Nonce([0u8; box_::NONCEBYTES]);
     let sk = box_::SecretKey(our_sk_b);
-    let key = box_::open(sealed_value, &nonce, &their_pk_b, &sk);
-    match key {
-        Ok(key) => {
-            let mut key_array = [0u8; 32];
-            key_array.copy_from_slice(&key);
-            key_array
+    let key = box_::open(sealed_value, &nonce, &their_pk_b, &sk)
+        .map_err(|_| "Invalid sealed key")?;
+    key.try_into().map_err(|_| "Invalid symmetric key length")
+}
+
+#[cfg(test)]
+mod handshake_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_malformed_keys_without_panicking() {
+        sodiumoxide::init().unwrap();
+        for pk_len in [0, 1, 31, 32, 33, 1024] {
+            for box_len in [0, 1, 47, 48, 49, 1024] {
+                assert!(get_symetric_key_from_msg([0; 32], &vec![0; pk_len], &vec![0; box_len]).is_err());
+            }
         }
-        Err(e) => panic!("Error while opening the seal key{:?}", e),
+    }
+
+    #[test]
+    fn opens_valid_key() {
+        sodiumoxide::init().unwrap();
+        let (our_pk, our_sk) = box_::gen_keypair();
+        let (their_pk, their_sk) = box_::gen_keypair();
+        let nonce = box_::Nonce([0; box_::NONCEBYTES]);
+        let sealed = box_::seal(&[42; 32], &nonce, &our_pk, &their_sk);
+        assert_eq!(get_symetric_key_from_msg(our_sk.0, &their_pk.0, &sealed).unwrap(), [42; 32]);
     }
 }

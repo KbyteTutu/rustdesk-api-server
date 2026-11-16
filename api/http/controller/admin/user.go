@@ -51,7 +51,7 @@ func (ct *User) Detail(c *gin.Context) {
 // @Router /admin/user/create [post]
 // @Security token
 func (ct *User) Create(c *gin.Context) {
-	f := &admin.UserForm{}
+	f := &admin.CreateUserForm{}
 	if err := c.ShouldBindJSON(f); err != nil {
 		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError")+err.Error())
 		return
@@ -62,6 +62,7 @@ func (ct *User) Create(c *gin.Context) {
 		return
 	}
 	u := f.ToUser()
+	u.Password = f.Password
 	err := service.AllService.UserService.Create(u)
 	if err != nil {
 		response.Fail(c, 101, response.TranslateMsg(c, "OperationFailed")+err.Error())
@@ -124,11 +125,7 @@ func (ct *User) Update(c *gin.Context) {
 		return
 	}
 	u := f.ToUser()
-	fields := []string{"username", "email", "nickname", "group_id", "status", "remark"}
-	if u.IsAdmin != nil {
-		fields = append(fields, "is_admin")
-	}
-	err := service.UpdateFields(u, fields...)
+	err := service.AllService.UserService.UpdateAdmin(u)
 	if err != nil {
 		response.Fail(c, 101, response.TranslateMsg(c, "OperationFailed")+err.Error())
 		return
@@ -250,7 +247,7 @@ func (ct *User) ChangeCurPwd(c *gin.Context) {
 	u := service.AllService.UserService.CurUser(c)
 	// Verify the old password only when the account already has one set
 	if !service.AllService.UserService.IsPasswordEmptyByUser(u) {
-		ok, _, err := utils.VerifyPassword(u.Password, f.OldPassword)
+		ok, err := utils.VerifyPassword(u.Password, f.OldPassword)
 		if err != nil || !ok {
 			response.Fail(c, 101, response.TranslateMsg(c, "OldPasswordError"))
 			return
@@ -341,12 +338,16 @@ func (ct *User) Register(c *gin.Context) {
 		return
 	}
 	// 注册成功后自动登录
-	ut := service.AllService.UserService.Login(u, &model.LoginLog{
+	ut, err := service.AllService.UserService.Login(u, &model.LoginLog{
 		UserId: u.Id,
 		Client: model.LoginLogClientWebAdmin,
 		Uuid:   "",
 		Ip:     c.ClientIP(),
 		Type:   model.LoginLogTypeAccount,
 	})
+	if err != nil {
+		response.Fail(c, 101, response.TranslateMsg(c, "LoginFailed"))
+		return
+	}
 	responseLoginSuccess(c, u, ut.Token)
 }

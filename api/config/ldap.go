@@ -2,7 +2,7 @@ package config
 
 type LdapUser struct {
 	BaseDn          string `mapstructure:"base-dn"`           // The base DN of the user for searching
-	EnableAttr      string `mapstructure:"enable-attr"`       // The attribute name of the user for enabling, in AD it is "userAccountControl", empty means no enable attribute, all users are enabled
+	EnableAttr      string `mapstructure:"enable-attr"`       // Defaults to AD userAccountControl; non-AD requires an explicit status attribute.
 	EnableAttrValue string `mapstructure:"enable-attr-value"` // The value of the enable attribute when the user is enabled. If you are using AD, just leave it random str, it will be ignored.
 	Filter          string `mapstructure:"filter"`
 	Username        string `mapstructure:"username"`

@@ -241,7 +241,7 @@
   import { loadAllUsers } from '@/global'
   import { useAppStore } from '@/store/app'
   import { connectByClient } from '@/utils/peer'
-  import { ArrowDown, ArrowUp, CopyDocument, Setting } from '@element-plus/icons'
+  import { ArrowDown, ArrowUp, CopyDocument, Setting } from '@element-plus/icons-vue'
   import { handleClipboard } from '@/utils/clipboard'
   import { batchCreateFromPeers } from '@/api/address_book'
   import { useRepositories as useCollectionRepositories } from '@/views/address_book/collection'

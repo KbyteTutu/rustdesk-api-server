@@ -66,9 +66,6 @@ func TestInitLeavesSampleValuesOut(t *testing.T) {
 	if c.Ldap.User.BaseDn != "" || c.Ldap.User.AllowGroup != "" || c.Ldap.BindPassword != "" {
 		t.Errorf("ldap got sample values: %+v", c.Ldap)
 	}
-	if c.Logger.Path != "" {
-		t.Errorf("logger.path = %q, want empty", c.Logger.Path)
-	}
 	if c.Proxy.Host != "" {
 		t.Errorf("proxy.host = %q, want empty", c.Proxy.Host)
 	}

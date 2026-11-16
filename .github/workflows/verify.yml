@@ -1,0 +1,47 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches: [master, main, 'improve/**']
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: api/go.sum
+      - run: go test -mod=readonly -race ./...
+        working-directory: api
+      - run: go vet -mod=readonly ./...
+        working-directory: api
+      - run: go build -mod=readonly ./...
+        working-directory: api
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci && npm test && npm run build && npm audit --audit-level=high
+        working-directory: web
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+      - run: |
+          docker run --rm -v "$PWD":/src -w /src rust:alpine \
+            sh -c 'apk add --no-cache protoc musl-dev make perl &&
+                   cargo test --locked'

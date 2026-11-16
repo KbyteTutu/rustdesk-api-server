@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+const maxSecurityEntries = 10000
+const maxAttemptsPerIP = 1024
+
 // 安全策略配置
 type SecurityPolicy struct {
 	CaptchaThreshold int // 尝试失败次数达到验证码阈值，小于0表示不启用, 0表示强制启用
@@ -55,6 +58,9 @@ var defaultSecurityPolicy = SecurityPolicy{
 }
 
 func NewLoginLimiter(policy SecurityPolicy) *LoginLimiter {
+	if policy.CaptchaThreshold > maxAttemptsPerIP || policy.BanThreshold > maxAttemptsPerIP || policy.BanThreshold < 0 {
+		panic("login security thresholds exceed supported bounds")
+	}
 	// 设置默认值
 	if policy.AttemptsWindow == 0 {
 		policy.AttemptsWindow = 5 * time.Minute
@@ -104,7 +110,13 @@ func (ll *LoginLimiter) RecordFailedAttempt(ip string) {
 	// 清理过期尝试
 	validAttempts := ll.pruneAttempts(ip, windowStart)
 
-	// 记录新尝试
+	// Never evict another IP's security state to admit a new sender.
+	if len(validAttempts) == 0 && len(ll.attempts)+len(ll.bannedIPs) >= maxSecurityEntries {
+		return
+	}
+	if len(validAttempts) >= maxAttemptsPerIP {
+		validAttempts = validAttempts[1:]
+	}
 	validAttempts = append(validAttempts, now)
 	ll.attempts[ip] = validAttempts
 
@@ -126,6 +138,9 @@ func (ll *LoginLimiter) RequireCaptcha() (error, CaptchaMeta) {
 		return errors.New("no captcha provider available"), CaptchaMeta{}
 	}
 
+	if len(ll.captchas) >= maxSecurityEntries {
+		return errors.New("captcha capacity reached"), CaptchaMeta{}
+	}
 	id, content, answer, err := ll.provider.Generate()
 	if err != nil {
 		return err, CaptchaMeta{}
@@ -158,19 +173,9 @@ func (ll *LoginLimiter) VerifyCaptcha(id, answer string) bool {
 		return false
 	}
 
-	// 清理过期验证码
-	if time.Now().After(captcha.ExpiresAt) {
-		delete(ll.captchas, id)
-		return false
-	}
-
-	// 验证并清理状态
-	if answer == captcha.Answer {
-		delete(ll.captchas, id)
-		return true
-	}
-
-	return false
+	// Every attempt consumes the challenge, including an incorrect answer.
+	delete(ll.captchas, id)
+	return time.Now().Before(captcha.ExpiresAt) && answer == captcha.Answer
 }
 
 func (ll *LoginLimiter) DrawCaptcha(content string) (err error, str string) {
@@ -205,8 +210,11 @@ func (ll *LoginLimiter) CheckSecurityStatus(ip string) (banned bool, captchaRequ
 	// 清理过期数据
 	ll.pruneAttempts(ip, time.Now().Add(-ll.policy.AttemptsWindow))
 
-	// 检查验证码要求
-	captchaRequired = len(ll.attempts[ip]) >= ll.policy.CaptchaThreshold
+	// Fail closed for unknown senders when the bounded state table is full.
+	if len(ll.attempts[ip]) == 0 && len(ll.attempts)+len(ll.bannedIPs) >= maxSecurityEntries {
+		return true, false
+	}
+	captchaRequired = ll.policy.CaptchaThreshold >= 0 && len(ll.attempts[ip]) >= ll.policy.CaptchaThreshold
 
 	return
 }

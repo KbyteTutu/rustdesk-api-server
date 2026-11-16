@@ -1,6 +1,8 @@
 package router
 
 import (
+	"path/filepath"
+
 	"github.com/gin-gonic/gin"
 	_ "github.com/lejianwen/rustdesk-api/v2/docs/api"
 	"github.com/lejianwen/rustdesk-api/v2/global"
@@ -8,7 +10,6 @@ import (
 	"github.com/lejianwen/rustdesk-api/v2/http/middleware"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
-	"net/http"
 )
 
 func ApiInit(g *gin.Engine) {
@@ -19,7 +20,7 @@ func ApiInit(g *gin.Engine) {
 		g.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.InstanceName("api")))
 	}
 	// 加载 HTML 模板
-	g.LoadHTMLGlob("resources/templates/*")
+	g.LoadHTMLGlob(filepath.Join(global.Config.Gin.ResourcesPath, "templates", "*"))
 
 	frg := g.Group("/api")
 
@@ -28,7 +29,7 @@ func ApiInit(g *gin.Engine) {
 		frg.GET("/", i.Index)
 		frg.GET("/version", i.Version)
 
-		frg.POST("/heartbeat", i.Heartbeat)
+		frg.POST("/heartbeat", middleware.RustAuth(), i.Heartbeat)
 	}
 
 	{
@@ -57,7 +58,7 @@ func ApiInit(g *gin.Engine) {
 	{
 		pe := &api.Peer{}
 		//提交系统信息
-		frg.POST("/sysinfo", pe.SysInfo)
+		frg.POST("/sysinfo", middleware.RustAuth(), pe.SysInfo)
 		frg.POST("/sysinfo_ver", pe.SysInfoVer)
 	}
 
@@ -68,9 +69,9 @@ func ApiInit(g *gin.Engine) {
 	{
 		au := &api.Audit{}
 		//[method:POST] [uri:/api/audit/conn]
-		frg.POST("/audit/conn", au.AuditConn)
+		frg.POST("/audit/conn", middleware.RustAuth(), au.AuditConn)
 		//[method:POST] [uri:/api/audit/file]
-		frg.POST("/audit/file", au.AuditFile)
+		frg.POST("/audit/file", middleware.RustAuth(), au.AuditFile)
 	}
 
 	frg.Use(middleware.RustAuth())
@@ -100,8 +101,6 @@ func ApiInit(g *gin.Engine) {
 	}
 
 	PersonalRoutes(frg)
-	//访问静态文件
-	g.StaticFS("/upload", http.Dir(global.Config.Gin.ResourcesPath+"/public/upload"))
 }
 
 func PersonalRoutes(frg *gin.RouterGroup) {

@@ -13,7 +13,9 @@ pub struct Claims {
 }
 
 pub fn generate_token(user_id: u32, exp: i64) -> Result<String, String> {
-    println!("secret: {:}", SECRET.to_string());
+    if SECRET.len() < 32 {
+        return Err("Invalid JWT key configuration".to_string());
+    }
     let claims = Claims {
         user_id,
         exp: (chrono::Utc::now() + chrono::Duration::seconds(exp)).timestamp() as usize,
@@ -32,8 +34,11 @@ pub fn generate_token(user_id: u32, exp: i64) -> Result<String, String> {
 }
 // 验证 JWT 的函数
 pub fn verify_token(token: &str) -> Result<Claims, String> {
-    // 解码 JWT
-    let validation = Validation::new(Algorithm::HS256);
+    if SECRET.len() < 32 {
+        return Err("Invalid JWT key configuration".to_string());
+    }
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.leeway = 0;
 
     let decoded = decode::<Claims>(
         &token,
@@ -43,7 +48,7 @@ pub fn verify_token(token: &str) -> Result<Claims, String> {
     match decoded {
         Ok(token_data) => {
             let now = chrono::Utc::now().timestamp() as usize;
-            if token_data.claims.exp > now {
+            if token_data.claims.user_id != 0 && token_data.claims.exp > now {
                 Ok(token_data.claims)
             } else {
                 Err("Token status invalid or expired".to_string())

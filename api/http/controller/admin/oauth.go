@@ -26,7 +26,7 @@ func (o *Oauth) Info(c *gin.Context) {
 		response.Fail(c, 101, response.TranslateMsg(c, "ItemNotFound"))
 		return
 	}
-	response.Success(c, v)
+	response.Success(c, gin.H{"action": v.Action, "op": v.Op, "device_type": v.DeviceType, "device_os": v.DeviceOs, "name": v.Name})
 }
 
 func (o *Oauth) ToBind(c *gin.Context) {
@@ -50,13 +50,17 @@ func (o *Oauth) ToBind(c *gin.Context) {
 		return
 	}
 
-	service.AllService.OauthService.SetOauthCache(state, &service.OauthCacheItem{
+	err = service.AllService.OauthService.SetOauthCache(state, &service.OauthCacheItem{
 		Action:   service.OauthActionTypeBind,
 		Op:       f.Op,
 		UserId:   u.Id,
 		Verifier: verifier,
 		Nonce:    nonce,
 	}, 5*60)
+	if err != nil {
+		c.AbortWithStatusJSON(503, gin.H{"error": "OAuth temporarily unavailable"})
+		return
+	}
 
 	response.Success(c, gin.H{
 		"code": state,
@@ -76,15 +80,12 @@ func (o *Oauth) Confirm(c *gin.Context) {
 		response.Fail(c, 101, response.TranslateMsg(c, "ParamsError"))
 		return
 	}
-	v := service.AllService.OauthService.GetOauthCache(j.Code)
-	if v == nil {
+	u := service.AllService.UserService.CurUser(c)
+	if !service.AllService.OauthService.AuthorizeWebLogin(j.Code, u.Id) {
 		response.Fail(c, 101, response.TranslateMsg(c, "OauthExpired"))
 		return
 	}
-	u := service.AllService.UserService.CurUser(c)
-	v.UserId = u.Id
-	service.AllService.OauthService.SetOauthCache(j.Code, v, 0)
-	response.Success(c, v)
+	response.Success(c, nil)
 }
 
 func (o *Oauth) BindConfirm(c *gin.Context) {
@@ -99,22 +100,14 @@ func (o *Oauth) BindConfirm(c *gin.Context) {
 		return
 	}
 	oauthService := service.AllService.OauthService
-	oauthCache := oauthService.GetOauthCache(j.Code)
-	if oauthCache == nil {
-		response.Fail(c, 101, response.TranslateMsg(c, "OauthExpired"))
-		return
-	}
-	oauthUser := oauthCache.ToOauthUser()
 	user := service.AllService.UserService.CurUser(c)
-	err = oauthService.BindOauthUser(user.Id, oauthUser, oauthCache.Op)
+	err = oauthService.BindVerifiedLogin(j.Code, user.Id)
 	if err != nil {
 		response.Fail(c, 101, response.TranslateMsg(c, "BindFail"))
 		return
 	}
 
-	oauthCache.UserId = user.Id
-	oauthService.SetOauthCache(j.Code, oauthCache, 0)
-	response.Success(c, oauthCache)
+	response.Success(c, nil)
 }
 
 func (o *Oauth) Unbind(c *gin.Context) {
@@ -154,6 +147,7 @@ func (o *Oauth) Detail(c *gin.Context) {
 	iid, _ := strconv.Atoi(id)
 	u := service.AllService.OauthService.InfoById(uint(iid))
 	if u.Id > 0 {
+		u.ClientSecret = ""
 		response.Success(c, u)
 		return
 	}
@@ -221,6 +215,9 @@ func (o *Oauth) List(c *gin.Context) {
 		return
 	}
 	res := service.AllService.OauthService.List(query.Page, query.PageSize, nil)
+	for _, provider := range res.Oauths {
+		provider.ClientSecret = ""
+	}
 	response.Success(c, res)
 }
 
@@ -251,17 +248,7 @@ func (o *Oauth) Update(c *gin.Context) {
 		return
 	}
 	u := f.ToOauth()
-	fields := []string{"op", "oauth_type", "issuer", "scopes", "client_id", "pkce_method"}
-	if u.AutoRegister != nil {
-		fields = append(fields, "auto_register")
-	}
-	if u.PkceEnable != nil {
-		fields = append(fields, "pkce_enable")
-	}
-	if u.ClientSecret != "" {
-		fields = append(fields, "client_secret")
-	}
-	err := service.UpdateFields(u, fields...)
+	err := service.AllService.OauthService.Update(u)
 	if err != nil {
 		response.Fail(c, 101, response.TranslateMsg(c, "OperationFailed")+err.Error())
 		return

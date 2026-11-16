@@ -98,10 +98,10 @@ func (abc *AddressBookCollection) Update(c *gin.Context) {
 		return
 	}
 	u := service.AllService.UserService.CurUser(c)
-	//if f.UserId != u.Id {
-	//	response.Fail(c, 101, response.TranslateMsg(c, "NoAccess"))
-	//	return
-	//}
+	if f.UserId != 0 && f.UserId != u.Id {
+		c.AbortWithStatusJSON(403, gin.H{"error": "Forbidden"})
+		return
+	}
 	ex := service.AllService.AddressBookService.CollectionInfoById(f.Id)
 	if ex.Id == 0 {
 		response.Fail(c, 101, response.TranslateMsg(c, "ItemNotFound"))
@@ -112,7 +112,8 @@ func (abc *AddressBookCollection) Update(c *gin.Context) {
 		return
 	}
 
-	err := service.AllService.AddressBookService.UpdateCollection(f)
+	ex.Name = f.Name
+	err := service.AllService.AddressBookService.UpdateCollection(ex)
 	if err != nil {
 		response.Fail(c, 101, response.TranslateMsg(c, "OperationFailed")+err.Error())
 		return

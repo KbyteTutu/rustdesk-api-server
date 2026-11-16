@@ -5,6 +5,7 @@ import (
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"golang.org/x/text/language"
 	"os"
+	"strings"
 )
 
 func InitI18n() {
@@ -18,10 +19,12 @@ func InitI18n() {
 	}
 	for _, fileInfo := range fileInfos {
 		//如果文件名不是.toml结尾
-		if fileInfo.IsDir() || fileInfo.Name()[len(fileInfo.Name())-5:] != ".toml" {
+		if fileInfo.IsDir() || !strings.HasSuffix(fileInfo.Name(), ".toml") {
 			continue
 		}
-		bundle.LoadMessageFile(Config.Gin.ResourcesPath + "/i18n/" + fileInfo.Name())
+		if _, err := bundle.LoadMessageFile(dir + "/" + fileInfo.Name()); err != nil {
+			panic(err)
+		}
 	}
 	Localizer = func(lang string) *i18n.Localizer {
 		if lang == "" {

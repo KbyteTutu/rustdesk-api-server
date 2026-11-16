@@ -1,153 +1,149 @@
-# 部署指南
+# 部署指南（审计修复分支）
 
-自建 RustDesk 中心服务器的完整部署指南。三组件对齐官方 Pro 架构（hbbs 信令 / hbbr 中继 / api 账号与地址簿），全部开源、单仓库、docker compose 编排。
+本分支改变认证、控制通道与配置格式，**不能直接配用旧发布镜像**。
+先从同一提交构建 hbbs、hbbr、API 三个镜像，使用固定版本标签。
+不要把旧 `0.2` 或 `latest` 镜像的行为当成本分支的验收结果。
 
-基线版本 **0.1**。
+## 安全边界
 
-## 架构总览
+- hbbs 与 API 必须使用相同的 `RUSTDESK_API_JWT_KEY`，至少 32 字节；Compose 强制 `MUST_LOGIN=Y`。
+- JWT 固定有效期（默认 `168h`），每次登录有独立会话。不再只延长数据库过期时间。
+  API 注销/禁用/改密会撤销数据库会话；hbbs 离线验证 JWT，**已签发令牌在签名到期前仍可能通过 hbbs**。
+- API 只挂载公钥副本，不挂载服务端私钥目录。公钥导出服务只在初始化时复制公钥。
+- 管理命令只供管理员通过私有 Unix socket 使用，不再开放 TCP 控制端口。
+  socket 父目录 `0700`、socket `0600`；空路径禁用控制；Windows 没有网络后备通道。
+  API 容器拥有控制能力，必须作为受信任管理组件保护。
+- API 与 WebSocket 只发布在主机回环地址。生产必须用 HTTPS/WSS 反向代理。
+  WebSocket 不接受额外 KeyExchange：采用 TLS-only，拒绝半加密状态。
+  Rust 服务不信任客户端提供的 `X-Real-IP`/`X-Forwarded-For`。
+- API 的 Gin 默认不信任代理。需要真实客户端 IP 时，仅配置实际代理 CIDR，禁止 `0.0.0.0/0`。
+- API 日志只写 stdout，Compose 使用 local 驱动、每服务 3×10 MB 轮转。不得记录密码、JWT、对称密钥。
 
-| 组件 | 容器 | 镜像 | 职责 | 端口 |
-|---|---|---|---|---|
-| hbbs | `hbbs` | `ghcr.io/kbytetutu/rustdesk-hbbs:0.2` | ID 注册、打洞信令、**key exchange**、websocket | 21115, 21116/tcp+udp, 21118 |
-| hbbr | `hbbr` | `ghcr.io/kbytetutu/rustdesk-hbbr:0.2` | 流量中继 | 21117, 21119 |
-| api | `rustdesk-api` | `ghcr.io/kbytetutu/rustdesk-api:0.2` | 账号登录、地址簿、审计、web 控制台、webclient | 21114 |
+## 首次启动
 
-三容器共享 `./data` 目录：hbbs 在其中生成/读取服务端密钥对 `id_ed25519(.pub)`，api 只读挂载同一目录以读取公钥。
+需要 Linux、Docker Engine 与 Compose 插件，以及 HTTPS/WSS 反向代理。
 
-数据流：
-
-```
-客户端 ──登录/地址簿/心跳──▶ api (:21114)
-客户端 ──ID注册/打洞/kx────▶ hbbs (:21115/21116/21118)
-客户端 ──中继流量──────────▶ hbbr (:21117/21119)
-```
-
-## 前置条件
-
-- 一台公网服务器（有公网 IP 或域名）
-- 已安装 Docker ≥ 24 与 compose 插件
-- 防火墙/安全组放行：`21114, 21115, 21116/tcp, 21116/udp, 21117, 21118, 21119`
-
-## 快速开始
-
-```bash
-git clone https://github.com/KbyteTutu/rustdesk-api-server.git
-cd rustdesk-api-server
+```sh
+git submodule update --init --recursive
 cp .env.example .env
-# 编辑 .env：RUSTDESK_HOST 改为你的域名或公网 IP
-docker compose up -d
+chmod 600 .env
+openssl rand -hex 32
 ```
 
-查看状态（三容器应全部 healthy）：
+编辑 `.env`：
 
-```bash
-docker compose ps
-docker compose logs -f hbbs   # 首次启动会打印生成的服务端公钥
-```
-
-## 初始化控制台
-
-1. 首次启动时 api 会生成随机初始密码，在服务器上查看：
-
-   ```bash
-   docker compose logs rustdesk-api | grep "Admin Password"
-   ```
-
-2. 浏览器打开 `http://<RUSTDESK_HOST>:21114/_admin/`，账号 `admin` + 上一步的密码登录，**登录后立即修改密码**
-3. （可选）在系统设置中按需开启注册、2FA、OIDC 等
-
-## 客户端配置
-
-RustDesk 客户端 → 设置 → 网络 → 解锁网络配置：
-
-| 项 | 值 |
+| 配置 | 要求 |
 |---|---|
-| ID 服务器 | `<RUSTDESK_HOST>:21116` |
-| 中继服务器 | `<RUSTDESK_HOST>:21117` |
-| API 服务器 | `http://<RUSTDESK_HOST>:21114` |
-| Key | `data/id_ed25519.pub` 文件的内容（一行字符串） |
+| `RUSTDESK_IMAGE_TAG` | 从当前修复提交构建的固定镜像标签 |
+| `RUSTDESK_HOST` | 客户端能解析到的公网域名/IP，不是容器名 |
+| `RUSTDESK_API_URL` | 外部 HTTPS 地址，如 `https://desk.example.com` |
+| `RUSTDESK_API_JWT_KEY` | 上述随机密钥，hbbs/API 共用 |
+| `RUSTDESK_API_ADMIN_PASSWORD` | 首次初始化 admin 的密码，8–72 字节；不会打印到日志 |
 
-```bash
-cat data/id_ed25519.pub   # 在服务器上查看 Key
+`.env` 不得提交、分享或放入公开备份。已有用户库不会被初始化密码覆盖。
+先备份数据库及私钥，再启动：
+
+```sh
+docker compose config --quiet
+docker compose up -d
+docker compose ps
 ```
 
-配置后注册/登录账号即可使用地址簿；浏览器远程控制入口为 `http://<RUSTDESK_HOST>:21114/webclient/`。**已登录状态下直接连接也不会再触发 "Insecure Connection" 弹窗**——hbbs 内置了客户端 1.4.7+ 要求的 key exchange（官方 OSS server 缺失的部分，详见 [背景与原理](./api/docs/rustdesk-1.5-clients.md)）。
+启动顺序为 hbbs 健康 → hbbr / 公钥导出 → API。
+API 登录页为 `https://desk.example.com/_admin/`，初始用户 `admin`。
+API 健康检查访问 `/api/login-options`，不仅检查进程存在。
+
+### 网络
+
+| 用途 | 端口 | 暴露方式 |
+|---|---|---|
+| NAT / ID | 21115/TCP、21116/TCP+UDP | 公网 |
+| 中继 | 21117/TCP | 公网 |
+| API / 控制台 | 21114/TCP | 127.0.0.1，经 HTTPS 代理 |
+| hbbs WebSocket | 21118/TCP | 127.0.0.1，经 WSS 代理 |
+| hbbr WebSocket | 21119/TCP | 127.0.0.1，经 WSS 代理 |
+
+代理必须正确透传 WebSocket Upgrade。部署后用实际客户端验证 WSS 路径及原生 TCP 连接。
+未做实际客户端矩阵测试前，不应承诺所有版本均兼容。
+
+## 客户端
+
+- ID 服务器：`<RUSTDESK_HOST>:21116`
+- 中继服务器：`<RUSTDESK_HOST>:21117`
+- API：`.env` 中的 HTTPS 地址
+- Key：服务器上的 `data/id_ed25519.pub` 内容（公钥，不是 `data/id_ed25519`）
+
+设备遥测接口必须携带有效 Bearer 会话，且 id/uuid 与登录会话及设备所有者匹配。
+不发送认证头的旧客户端不会被匿名放行，需要升级/调整客户端并验收。
+
+## 身份与数据约束
+
+- 密码仅支持 bcrypt；旧 MD5 不做自动升级。需人工重置旧密码，长度 8–72 **字节**。
+- `app.token-expire` 必须是 `168h` 这样的时长字符串；废弃 `jwt.expire-duration`。
+- LDAP 只支持校验证书的 LDAPS，连接/请求超时 5 秒。自签 CA 用 `tls-ca-file`，不可关闭校验。
+  AD 默认检查 `userAccountControl` 的 ACCOUNTDISABLE；非 AD 必须显式配置状态字段和值。
+- 启用 LDAP 后密码认证只走 LDAP，失败不回退本地密码。新 LDAP 账号绑定目录 URL+DN，
+  不按用户名/邮箱接管本地账号。旧 LDAP 用户没有绑定来源时也拒绝自动认领；
+  上线前由管理员核验并明确处理身份冲突，代码不提供自动迁移/合并。
+- OAuth 不按邮箱自动合并账号。绑定必须由已登录用户确认，登录结果只能消费一次。
+  provider 标识、类型、issuer 创建后不可修改；已有绑定的 provider 不可直接删除。
+- 启动前检查 OAuth provider、provider/subject、user/provider 和设备 ID 重复数据。
+  冲突会中止启动，必须人工核实处理；不会偷偷去重或自动重绑。
+- MySQL/PostgreSQL 数据库须预先创建。SQLite 开启 WAL、busy timeout，串行写入。
+- 最后一个启用管理员不能删除、降权或禁用；删除用户时清理关系，保留匿名化登录审计。
+- 上传/OSS/全局 Redis/缓存框架已移除，没有旧路由或兼容层；欢迎语是纯文本，不再解析 HTML。
 
 ## 数据与备份
 
-| 路径 | 内容 | 说明 |
-|---|---|---|
-| `./data/id_ed25519` | 服务端私钥 | **必须备份**；丢失后所有客户端需重新配置 Key |
-| `./data/id_ed25519.pub` | 服务端公钥 | 配置到所有客户端 |
-| `./data/api/` | api 数据库（用户/地址簿/审计） | 必须备份 |
+| 路径/卷 | 内容 |
+|---|---|
+| `./data/id_ed25519` | 私钥，0600，严格保密，必须备份 |
+| `./data/id_ed25519.pub` | 公钥 |
+| `./data/api/` | API 数据库（SQLite 包括 WAL） |
+| `public-key` 命名卷 | 可重新导出的公钥副本 |
+| `hbbs-control` / `hbbr-control` | 临时控制 socket，不作为业务数据备份 |
 
-备份即打包 `./data` 目录：
+先停写或使用数据库的一致性备份，不要在写入中仅复制 SQLite 主文件而遗漏 WAL。
+私钥损坏会使启动失败，不会自动替换。轮换密钥需人工安排维护窗口并更新全部客户端。
+更新固定镜像标签前备份数据；数据库变更后不能把直接降级镜像当作可靠回滚。
 
-```bash
-tar czf rustdesk-data-$(date +%F).tgz data/
+## 从源码验证与构建
+
+```sh
+(cd api && go test -mod=readonly -race ./... && go vet -mod=readonly ./... && go build -mod=readonly ./...)
+(cd web && npm ci && npm run build && npm audit --audit-level=high)
+# 原生 Rust 工具链须安装 protoc；依赖以 Cargo.lock 为准
+cargo test --locked
+cargo build --locked --release
 ```
 
-## 升级与回滚
+部署到 Alpine 的 Rust 二进制须使用 musl 工具链。以 amd64 为例：
 
-```bash
-docker compose pull && docker compose up -d     # 升级到 0.1.x 最新
-```
-
-镜像 tag 策略：`0.1`（跟随基线最新）、`0.1.0`（精确版本，用于回滚）、`latest`。回滚：
-
-```bash
-# 编辑 docker-compose.yml 中的镜像 tag 为精确版本，如 :0.1.0
-docker compose up -d
-```
-
-## 可选加固
-
-### 强制登录（MUST_LOGIN）
-
-未登录客户端一律拒绝连接（hbbs 校验 api 签发的 JWT）：
-
-1. `openssl rand -hex 32` 生成密钥，写入 `.env` 的 `RUSTDESK_API_JWT_KEY`
-2. 取消 `docker-compose.yml` 中 hbbs 与 api 两处 `RUSTDESK_API_JWT_KEY` 注释，hbbs 增加 `MUST_LOGIN=Y`
-3. `docker compose up -d`
-
-### HTTPS / 反向代理
-
-建议生产环境用 Caddy/Nginx 反代 21114（控制台与 API）与 21118/21119（websocket），注意 websocket 需要 `Upgrade` 头透传。反代后 `.env` 中 `RUSTDESK_API_RUSTDESK_API_SERVER` 改为 https 地址。
-
-## 自建镜像
-
-发布版本由 GitHub Actions 构建：推送 `v*.*.*` tag 或手动触发 workflow，自动构建三镜像并推送 `ghcr.io/kbytetutu/rustdesk-*`。
-
-本地构建（以 amd64 为例；arm64 同理放进 docker/bin/arm64/）：
-
-```bash
-# 1. 构建 Rust 二进制（musl）
+```sh
 docker run --rm -v "$PWD":/src -w /src rust:alpine \
-  sh -c "apk add --no-cache protoc musl-dev make perl && cargo build --release"
-
-# 2. 摆放到构建上下文
-mkdir -p docker/bin/stage/amd64
-cp target/release/{hbbs,hbbr,rustdesk-utils} docker/bin/stage/amd64/
-
-# 3. 构建镜像
-docker build -f docker/hbbs.Dockerfile -t rustdesk-hbbs:dev .
-docker build -f docker/hbbr.Dockerfile -t rustdesk-hbbr:dev .
-docker build -f docker/api.Dockerfile -t rustdesk-api:dev .
+  sh -c 'apk add --no-cache protoc musl-dev make perl && cargo test --locked && cargo build --locked --release'
+mkdir -p docker/bin/amd64
+cp target/release/hbbs target/release/hbbr target/release/rustdesk-utils docker/bin/amd64/
+TAG=audit-fixed
+docker build --build-arg TARGETARCH=amd64 -f docker/hbbs.Dockerfile -t ghcr.io/kbytetutu/rustdesk-hbbs:$TAG .
+docker build --build-arg TARGETARCH=amd64 -f docker/hbbr.Dockerfile -t ghcr.io/kbytetutu/rustdesk-hbbr:$TAG .
+docker build --build-arg TARGETARCH=amd64 -f docker/api.Dockerfile -t ghcr.io/kbytetutu/rustdesk-api:$TAG .
 ```
 
-说明：
+本地最小端到端验证（不替代真实客户端、LDAP/OIDC 和发布镜像联调）：
 
-- web 控制台源码在仓库 `web/`（subtree 引自 [lejianwen/rustdesk-api-web](https://github.com/lejianwen/rustdesk-api-web)，已按 Kbytetutu 风格定制），随镜像一并构建
-- Rust 二进制由 CI 在 amd64（x86 runner）与 arm64（GitHub 免费 arm runner）上各自原生编译；api 镜像的 Go 部分在同一构建里用 zig 交叉编译，三个镜像均为 amd64+arm64 双架构。不支持 armv7（rust:alpine 无 arm/v7 镜像）
+```sh
+# 先生成 target/debug/hbbs、hbbr；测试容器镜像须已在本机
+cargo build --locked
+docker pull alpine:3.21
+python3 scripts/audit-smoke.py
+```
 
-## 仓库维护
+`scripts/audit-smoke.py` 使用临时数据、随机测试密码、无网络容器和仅主机回环 API，
+验证空库启动、管理员建用户、长密码登录、私有 socket 控制、普通用户拒绝访问、
+遥测身份边界和退出撤销；结束后删除容器与测试数据。可用 `RUSTDESK_SMOKE_IMAGE`
+指定本机已有且可运行 Rust 二进制的镜像。它不读取部署 `.env` 或修改现有服务。
 
-- **api 上游同步**（Go 部分）：`git subtree pull --prefix=api https://github.com/lejianwen/rustdesk-api master --squash`
-- **web 控制台上游同步**：`git subtree pull --prefix=web https://github.com/lejianwen/rustdesk-api-web master --squash`（注意保留本地样式定制）
-- **server 上游同步**（Rust 部分）：以 forapi 分支模式合并 `rustdesk/rustdesk-server` 官方 master
-- 版本基线 0.1：发版打 tag `v0.1.x` 即可触发 CI
-
-## 许可证
-
-- hbbs/hbbr（Rust 部分）：AGPL-3.0，源自 [rustdesk/rustdesk-server](https://github.com/rustdesk/rustdesk-server) 与 [lejianwen/rustdesk-server](https://github.com/lejianwen/rustdesk-server)
-- api（Go 部分，`api/` 目录）：MIT，源自 [lejianwen/rustdesk-api](https://github.com/lejianwen/rustdesk-api)
+CI 先验证 Go/Rust/前端，再发布三镜像；Rust 按 amd64/arm64 原生构建，API 使用 CGO/musl。
+第三方 Actions 固定提交，构建带 provenance/SBOM。基础镜像仍使用标签，供应链完全可复现性
+还需维护经过验证的镜像 digest 与对应工具链版本，不应把 `--locked` 等同于所有输入均不可变。

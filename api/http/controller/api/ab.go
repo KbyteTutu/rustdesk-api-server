@@ -87,13 +87,11 @@ func (a *Ab) UpAb(c *gin.Context) {
 	}
 	user := service.AllService.UserService.CurUser(c)
 
-	err = service.AllService.AddressBookService.UpdateAddressBook(abd.Peers, user.Id)
+	err = service.AllService.AddressBookService.SyncDefaultCollection(abd.Peers, tc, user.Id)
 	if err != nil {
 		response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
 		return
 	}
-
-	service.AllService.TagService.UpdateTags(user.Id, tc)
 
 	c.JSON(http.StatusOK, nil)
 }
@@ -694,12 +692,11 @@ func (a *Ab) PeerUpdate(c *gin.Context) {
 	}
 	//fmt.Println(f)
 	//判断f["Id"]是否存在
-	fid, ok := f["id"]
-	if !ok {
-		response.Error(c, response.TranslateMsg(c, "ParamsError"))
+	fidstr, ok := f["id"].(string)
+	if !ok || fidstr == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid peer id"})
 		return
 	}
-	fidstr := fid.(string)
 
 	ab := service.AllService.AddressBookService.InfoByUserIdAndIdAndCid(uid, fidstr, cid)
 	if ab == nil || ab.RowId == 0 {
@@ -715,8 +712,27 @@ func (a *Ab) PeerUpdate(c *gin.Context) {
 		}
 	}
 	//fmt.Println(f)
-	if tags, _ok := f["tags"]; _ok {
-		f["tags"], _ = json.Marshal(tags)
+	for _, field := range []string{"password", "hash", "alias"} {
+		if value, present := f[field]; present {
+			if _, valid := value.(string); !valid {
+				c.AbortWithStatusJSON(400, gin.H{"error": "invalid " + field})
+				return
+			}
+		}
+	}
+	if tags, present := f["tags"]; present {
+		values, valid := tags.([]interface{})
+		if !valid || len(values) > 1000 {
+			c.AbortWithStatusJSON(400, gin.H{"error": "invalid tags"})
+			return
+		}
+		for _, value := range values {
+			if _, valid := value.(string); !valid {
+				c.AbortWithStatusJSON(400, gin.H{"error": "invalid tag"})
+				return
+			}
+		}
+		f["tags"], _ = json.Marshal(values)
 	}
 	err = service.AllService.AddressBookService.UpdateByMap(ab, f)
 	if err != nil {

@@ -30,20 +30,20 @@ func (p *Peer) SysInfo(c *gin.Context) {
 		response.Error(c, response.TranslateMsg(c, "ParamsError")+err.Error())
 		return
 	}
+	if !authorizeDevice(c, f.Id, f.Uuid) {
+		return
+	}
 	fpe := f.ToPeer()
 	pe := service.AllService.PeerService.FindById(f.Id)
 	if pe.RowId == 0 {
 		pe = f.ToPeer()
-		pe.UserId = service.AllService.UserService.FindLatestUserIdFromLoginLogByUuid(pe.Uuid, pe.Id)
+		pe.UserId = service.AllService.UserService.CurUser(c).Id
 		err = service.AllService.PeerService.Create(pe)
 		if err != nil {
 			response.Error(c, response.TranslateMsg(c, "OperationFailed")+err.Error())
 			return
 		}
 	} else {
-		if pe.UserId == 0 {
-			pe.UserId = service.AllService.UserService.FindLatestUserIdFromLoginLogByUuid(pe.Uuid, pe.Id)
-		}
 		fpe.RowId = pe.RowId
 		fpe.UserId = pe.UserId
 		err = service.AllService.PeerService.Update(fpe)

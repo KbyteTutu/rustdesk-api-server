@@ -70,6 +70,10 @@ func (ct *Tag) Create(c *gin.Context) {
 	t := f.ToTag()
 	u := service.AllService.UserService.CurUser(c)
 	t.UserId = u.Id
+	if t.CollectionId > 0 && !service.AllService.AddressBookService.CheckCollectionOwner(u.Id, t.CollectionId) {
+		c.AbortWithStatusJSON(403, gin.H{"error": "Forbidden"})
+		return
+	}
 	err := service.AllService.TagService.Create(t)
 	if err != nil {
 		response.Fail(c, 101, response.TranslateMsg(c, "OperationFailed")+err.Error())

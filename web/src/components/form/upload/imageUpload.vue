@@ -33,10 +33,9 @@
   </div>
 </template>
 <script>
-  import { defineComponent, ref, computed, reactive, unref, readonly, toRefs } from 'vue'
-  import { Plus, ZoomIn, Delete, ArrowLeft, ArrowRight, Check } from '@element-plus/icons'
+  import { defineComponent, ref, computed, reactive, unref, toRefs } from 'vue'
+  import { Plus, ZoomIn, Delete, ArrowLeft, ArrowRight, Check } from '@element-plus/icons-vue'
   import { useOss } from '@/components/form/upload/oss'
-  import { ElMessage } from 'element-plus'
   import { useLocal } from '@/components/form/upload/local'
 
   export default defineComponent({
@@ -54,7 +53,7 @@
       },
       host: {
         type: String,
-        default: import.meta.env.VITE_BASE_API + '/file/upload',
+        default: `${import.meta.env.VITE_BASE_API}/file/upload`,
       },
       modelValue: {
         type: String,
@@ -104,7 +103,7 @@
         )
       }
 
-      function fileRemove (file, _fileList) {
+      function fileRemove (_file, _fileList) {
         updateValue(_fileList)
       }
 

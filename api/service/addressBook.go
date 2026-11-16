@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/google/uuid"
 	"github.com/lejianwen/rustdesk-api/v2/model"
 	"gorm.io/gorm"
@@ -51,55 +52,50 @@ func (s *AddressBookService) AddAddressBook(ab *model.AddressBook) error {
 	return DB.Create(ab).Error
 }
 
-// UpdateAddressBook
-func (s *AddressBookService) UpdateAddressBook(abs []*model.AddressBook, userId uint) error {
-	//比较peers和数据库中的数据，如果peers中的数据在数据库中不存在，则添加，如果存在则更新，如果数据库中的数据在peers中不存在，则删除
-	// 开始事务
-	tx := DB.Begin()
-	//1. 获取数据库中的数据
-	var dbABs []*model.AddressBook
-	tx.Where("user_id = ?", userId).Find(&dbABs)
-	//2. 比较peers和数据库中的数据
-	//2.1 获取peers中的id
-	aBIds := make(map[string]*model.AddressBook)
+// SyncDefaultCollection replaces only this user's default collection, atomically.
+func (s *AddressBookService) SyncDefaultCollection(abs []*model.AddressBook, tags map[string]uint, userId uint) error {
+	if userId == 0 || len(abs) > 1000 || len(tags) > 1000 {
+		return errors.New("invalid address book")
+	}
+	seen := make(map[string]bool, len(abs))
 	for _, ab := range abs {
-		aBIds[ab.Id] = ab
+		if ab == nil || ab.Id == "" || seen[ab.Id] {
+			return errors.New("invalid or duplicate peer")
+		}
+		seen[ab.Id] = true
 	}
-	//2.2 获取数据库中的id
-	dbABIds := make(map[string]*model.AddressBook)
-	for _, dbAb := range dbABs {
-		dbABIds[dbAb.Id] = dbAb
-	}
-	//2.3 比较peers和数据库中的数据
-	for id, ab := range aBIds {
-		dbAB, ok := dbABIds[id]
-		ab.UserId = userId
-		if !ok {
-			//添加
-			if ab.Platform == "" || ab.Username == "" || ab.Hostname == "" {
-				peer := AllService.PeerService.FindById(ab.Id)
-				if peer.RowId != 0 {
-					ab.Platform = AllService.AddressBookService.PlatformFromOs(peer.Os)
-					ab.Username = peer.Username
-					ab.Hostname = peer.Hostname
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var existing []*model.AddressBook
+		if err := tx.Where("user_id = ? AND collection_id = 0", userId).Find(&existing).Error; err != nil {
+			return err
+		}
+		byID := make(map[string]*model.AddressBook, len(existing))
+		for _, ab := range existing {
+			byID[ab.Id] = ab
+		}
+		for _, input := range abs {
+			ab := *input
+			ab.RowId, ab.UserId, ab.CollectionId = 0, userId, 0
+			ab.Collection = nil
+			ab.TimeModel = model.TimeModel{}
+			if old := byID[ab.Id]; old != nil {
+				ab.RowId = old.RowId
+				if err := tx.Model(&model.AddressBook{}).Where("row_id = ? AND user_id = ? AND collection_id = 0", old.RowId, userId).Select("*").Omit("created_at", "Collection").Updates(&ab).Error; err != nil {
+					return err
+				}
+			} else if err := tx.Omit("Collection").Create(&ab).Error; err != nil {
+				return err
+			}
+		}
+		for _, old := range existing {
+			if !seen[old.Id] {
+				if err := tx.Where("user_id = ? AND collection_id = 0", userId).Delete(old).Error; err != nil {
+					return err
 				}
 			}
-			tx.Create(ab)
-		} else {
-			//更新
-			tx.Model(&model.AddressBook{}).Where("row_id = ?", dbAB.RowId).Updates(ab)
 		}
-	}
-	//2.4 删除
-	for id, dbAB := range dbABIds {
-		_, ok := aBIds[id]
-		if !ok {
-			tx.Delete(dbAB)
-		}
-	}
-	tx.Commit()
-	return nil
-
+		return syncDefaultTags(tx, userId, tags)
+	})
 }
 
 func (s *AddressBookService) List(page, pageSize uint, where func(tx *gorm.DB)) (res *model.AddressBookList) {
@@ -275,7 +271,7 @@ func (s *AddressBookService) CreateCollection(t *model.AddressBookCollection) er
 }
 
 func (s *AddressBookService) UpdateCollection(t *model.AddressBookCollection) error {
-	return DB.Model(t).Updates(t).Error
+	return DB.Model(&model.AddressBookCollection{}).Where("id = ? AND user_id = ?", t.Id, t.UserId).Update("name", t.Name).Error
 }
 
 func (s *AddressBookService) DeleteCollection(t *model.AddressBookCollection) error {

@@ -1,6 +1,6 @@
-import { ref, onMounted, reactive, watch } from 'vue'
-import { create, detail, update, remove } from '@/api/user'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, onMounted, reactive } from 'vue'
+import { create, detail, update } from '@/api/user'
+import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { list as groups } from '@/api/group'
 import { T } from '@/utils/i18n'
@@ -38,14 +38,20 @@ export function useSubmit (form, id) {
   const router = useRouter()
   const rules = reactive({
     username: [{ required: true, message: T('ParamRequired', { param: T('Username') }) }],
-    // email: [{ required: true, message: T('ParamRequired', { param: T('Email') }) }],
+    password: id > 0 ? [] : [
+      { required: true, message: T('ParamRequired', { param: T('Password') }) },
+      { validator: (_rule, value, callback) => {
+        const size = new TextEncoder().encode(value || '').length
+        callback(size >= 8 && size <= 72 ? undefined : new Error('Password must contain 8–72 bytes'))
+      } },
+    ],
     group_id: [{ required: true, message: T('ParamRequired', { param: T('Group') }) }],
     // nickname: [{ required: true, message: '昵称是必须的' }],
     status: [{ required: true, message: T('ParamRequired', { param: T('Status') }) }],
   })
 
   const validate = async () => {
-    const res = await root.value.validate().catch(err => false)
+    const res = await root.value.validate().catch(() => false)
     return res
   }
 

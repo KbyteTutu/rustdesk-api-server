@@ -2,12 +2,13 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/lejianwen/rustdesk-api/v2/model"
-	"github.com/lejianwen/rustdesk-api/v2/utils"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 
@@ -17,7 +18,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,8 +47,10 @@ type OauthCacheItem struct {
 	Username   string `json:"username"`
 	Name       string `json:"name"`
 	Email      string `json:"email"`
-	Verifier   string `json:"verifier"` // used for oauth pkce
-	Nonce      string `json:"nonce"`
+	Verifier   string `json:"-"`
+	Nonce      string `json:"-"`
+	phase      string
+	expiresAt  time.Time
 }
 
 func (oci *OauthCacheItem) ToOauthUser() *model.OauthUser {
@@ -60,7 +62,8 @@ func (oci *OauthCacheItem) ToOauthUser() *model.OauthUser {
 	}
 }
 
-var OauthCache = &sync.Map{}
+var oauthMu sync.Mutex
+var oauthCache = make(map[string]*OauthCacheItem)
 
 const (
 	OauthActionTypeLogin = "login"
@@ -74,29 +77,127 @@ func (oci *OauthCacheItem) UpdateFromOauthUser(oauthUser *model.OauthUser) {
 	oci.Email = oauthUser.Email
 }
 
-func (os *OauthService) GetOauthCache(key string) *OauthCacheItem {
-	v, ok := OauthCache.Load(key)
-	if !ok {
+func liveOauth(key string) *OauthCacheItem {
+	v := oauthCache[key]
+	if v != nil && !time.Now().Before(v.expiresAt) {
+		delete(oauthCache, key)
 		return nil
 	}
-	return v.(*OauthCacheItem)
+	return v
 }
 
-func (os *OauthService) SetOauthCache(key string, item *OauthCacheItem, expire uint) {
-	OauthCache.Store(key, item)
-	if expire > 0 {
-		time.AfterFunc(time.Duration(expire)*time.Second, func() {
-			os.DeleteOauthCache(key)
-		})
+func (os *OauthService) GetOauthCache(key string) *OauthCacheItem {
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
+	v := liveOauth(key)
+	if v == nil {
+		return nil
 	}
+	copy := *v
+	return &copy
+}
+
+// SetOauthCache creates a flow. Later changes must use explicit transitions.
+func (os *OauthService) SetOauthCache(key string, item *OauthCacheItem, expire uint) error {
+	if key == "" || item == nil || expire == 0 || expire > 300 {
+		return errors.New("invalid OAuth flow")
+	}
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
+	if liveOauth(key) != nil || len(oauthCache) >= 10000 {
+		return errors.New("OAuth capacity exceeded")
+	}
+	copy := *item
+	copy.phase = "pending"
+	copy.expiresAt = time.Now().Add(time.Duration(expire) * time.Second)
+	oauthCache[key] = &copy
+	time.AfterFunc(time.Duration(expire)*time.Second, func() {
+		oauthMu.Lock()
+		defer oauthMu.Unlock()
+		if oauthCache[key] == &copy {
+			delete(oauthCache, key)
+		}
+	})
+	return nil
 }
 
 func (os *OauthService) DeleteOauthCache(key string) {
-	OauthCache.Delete(key)
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
+	delete(oauthCache, key)
+}
+
+func (os *OauthService) ConsumeLogin(key string) *OauthCacheItem {
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
+	v := liveOauth(key)
+	if v == nil || v.Action != OauthActionTypeLogin || v.phase != "authorized" || v.UserId == 0 {
+		return nil
+	}
+	delete(oauthCache, key)
+	copy := *v
+	return &copy
+}
+
+func (os *OauthService) AuthorizeWebLogin(key string, userId uint) bool {
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
+	v := liveOauth(key)
+	if v == nil || userId == 0 || v.Action != OauthActionTypeLogin || v.Op != model.OauthTypeWebauth || v.phase != "pending" {
+		return false
+	}
+	v.UserId, v.phase = userId, "authorized"
+	return true
+}
+
+func (os *OauthService) StartCallback(key string) *OauthCacheItem {
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
+	v := liveOauth(key)
+	if v == nil || v.Op == model.OauthTypeWebauth || v.phase != "pending" {
+		return nil
+	}
+	v.phase = "verifying"
+	copy := *v
+	return &copy
+}
+
+func (os *OauthService) CompleteCallback(key string, identity *model.OauthUser, userId uint) bool {
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
+	v := liveOauth(key)
+	if v == nil || v.phase != "verifying" || v.Action != OauthActionTypeLogin || identity == nil || identity.OpenId == "" {
+		return false
+	}
+	v.UpdateFromOauthUser(identity)
+	v.UserId, v.phase = userId, "verified"
+	if userId != 0 {
+		v.phase = "authorized"
+	}
+	return true
+}
+
+// A verified login can be explicitly bound by an authenticated local account.
+func (os *OauthService) BindVerifiedLogin(key string, userId uint) error {
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
+	v := liveOauth(key)
+	if v == nil || v.Action != OauthActionTypeLogin || v.phase != "verified" || v.UserId != 0 || v.OpenId == "" {
+		return errors.New("invalid OAuth flow")
+	}
+	if err := os.BindOauthUser(userId, v.ToOauthUser(), v.Op); err != nil {
+		return err
+	}
+	v.UserId, v.phase = userId, "authorized"
+	return nil
 }
 
 func (os *OauthService) BeginAuth(op string) (error error, state, verifier, nonce, url string) {
-	state = utils.RandomString(10) + strconv.FormatInt(time.Now().Unix(), 10)
+	var random [32]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return err, "", "", "", ""
+	}
+	state = hex.EncodeToString(random[:])
 	verifier = ""
 	nonce = ""
 	if op == model.OauthTypeWebauth {
@@ -108,7 +209,10 @@ func (os *OauthService) BeginAuth(op string) (error error, state, verifier, nonc
 	if err == nil {
 		extras := make([]oauth2.AuthCodeOption, 0, 3)
 
-		nonce = utils.RandomString(10)
+		if _, err := rand.Read(random[:]); err != nil {
+			return err, "", "", "", ""
+		}
+		nonce = hex.EncodeToString(random[:])
 		extras = append(extras, oauth2.SetAuthURLParam("nonce", nonce))
 
 		if oauthInfo.PkceEnable != nil && *oauthInfo.PkceEnable {
@@ -361,6 +465,9 @@ func (os *OauthService) UserThirdInfo(op string, openId string) *model.UserThird
 
 // BindOauthUser: Bind third party account
 func (os *OauthService) BindOauthUser(userId uint, oauthUser *model.OauthUser, op string) error {
+	if oauthUser == nil || oauthUser.OpenId == "" || !AllService.UserService.CheckUserEnable(AllService.UserService.InfoById(userId)) {
+		return errors.New("invalid OAuth identity")
+	}
 	utr := &model.UserThird{}
 	err, oauthType := os.GetTypeByOp(op)
 	if err != nil {
@@ -465,16 +572,40 @@ func (os *OauthService) Create(oauthInfo *model.Oauth) error {
 	return res
 }
 func (os *OauthService) Delete(oauthInfo *model.Oauth) error {
+	var count int64
+	if err := DB.Model(&model.UserThird{}).Where("op = ?", oauthInfo.Op).Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 0 {
+		return errors.New("provider has bound users")
+	}
 	return DB.Delete(oauthInfo).Error
 }
 
 // Update 更新
 func (os *OauthService) Update(oauthInfo *model.Oauth) error {
-	err := oauthInfo.FormatOauthInfo()
-	if err != nil {
+	var current model.Oauth
+	if err := DB.First(&current, oauthInfo.Id).Error; err != nil {
 		return err
 	}
-	return DB.Model(oauthInfo).Updates(oauthInfo).Error
+	// Provider identity is immutable; changing its issuer can reassign existing subjects.
+	if current.Op != oauthInfo.Op || current.Issuer != oauthInfo.Issuer || current.OauthType != oauthInfo.OauthType {
+		return errors.New("provider identity is immutable")
+	}
+	if oauthInfo.AutoRegister == nil {
+		oauthInfo.AutoRegister = current.AutoRegister
+	}
+	if oauthInfo.PkceEnable == nil {
+		oauthInfo.PkceEnable = current.PkceEnable
+	}
+	if err := oauthInfo.FormatOauthInfo(); err != nil {
+		return err
+	}
+	fields := []string{"scopes", "client_id", "pkce_method", "auto_register", "pkce_enable"}
+	if oauthInfo.ClientSecret != "" {
+		fields = append(fields, "client_secret")
+	}
+	return DB.Model(oauthInfo).Select(fields).Updates(oauthInfo).Error
 }
 
 // GetOauthProviders 获取所有的provider

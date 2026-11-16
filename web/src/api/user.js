@@ -8,6 +8,10 @@ export function login (data) {
   })
 }
 
+export function logout () {
+  return request({ url: '/logout', method: 'post' })
+}
+
 export function current () {
   return request({
     url: '/user/current',

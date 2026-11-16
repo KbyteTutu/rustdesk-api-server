@@ -1,12 +1,11 @@
 use clap::App;
 use hbb_common::{
-    allow_err, anyhow::{Context, Result}, get_version_number, log, tokio, ResultType
+    anyhow::{Context, Result}, log, ResultType
 };
 use ini::Ini;
 use sodiumoxide::crypto::sign;
 use std::{
     io::prelude::*,
-    io::Read,
     net::SocketAddr,
     time::{Instant, SystemTime},
 };
@@ -105,53 +104,126 @@ pub fn now() -> u64 {
 }
 
 pub fn gen_sk(wait: u64) -> (String, Option<sign::SecretKey>) {
-    let sk_file = "id_ed25519";
-    if wait > 0 && !std::path::Path::new(sk_file).exists() {
+    if wait > 0 && !std::path::Path::new("id_ed25519").exists() {
         std::thread::sleep(std::time::Duration::from_millis(wait));
     }
-    if let Ok(mut file) = std::fs::File::open(sk_file) {
-        let mut contents = String::new();
-        if file.read_to_string(&mut contents).is_ok() {
-            let contents = contents.trim();
-            let sk = base64::decode(contents).unwrap_or_default();
-            if sk.len() == sign::SECRETKEYBYTES {
-                let mut tmp = [0u8; sign::SECRETKEYBYTES];
-                tmp[..].copy_from_slice(&sk);
-                let pk = base64::encode(&tmp[sign::SECRETKEYBYTES / 2..]);
-                log::info!("Private key comes from {}", sk_file);
-                return (pk, Some(sign::SecretKey(tmp)));
-            } else {
-                // don't use log here, since it is async
-                println!("Fatal error: malformed private key in {sk_file}.");
-                std::process::exit(1);
+    match load_or_create_key(std::path::Path::new(".")) {
+        Ok((pk, sk)) => (pk, Some(sk)),
+        Err(err) => {
+            eprintln!("Cannot initialize server identity: {err}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn load_or_create_key(dir: &std::path::Path) -> Result<(String, sign::SecretKey)> {
+    let path = dir.join("id_ed25519");
+    if let Ok(meta) = std::fs::symlink_metadata(&path) {
+        if !meta.is_file() || meta.file_type().is_symlink() { hbb_common::bail!("private key must be a regular file"); }
+    }
+    let sk = match std::fs::read_to_string(&path) {
+        Ok(contents) => {
+            let bytes = base64::decode(contents.trim())?;
+            sign::SecretKey::from_slice(&bytes).context("malformed private key")?
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let (_, sk) = sign::gen_keypair();
+            let mut file = tempfile::NamedTempFile::new_in(dir)?;
+            file.write_all(base64::encode(&sk).as_bytes())?;
+            file.as_file().sync_all()?;
+            match file.persist_noclobber(&path) {
+                Ok(_) => sk,
+                Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => return load_or_create_key(dir),
+                Err(e) => return Err(e.error.into()),
             }
         }
-    } else {
-        let gen_func = || {
-            let (tmp, sk) = sign::gen_keypair();
-            (base64::encode(tmp), sk)
-        };
-        let (mut pk, mut sk) = gen_func();
-        for _ in 0..300 {
-            if !pk.contains('/') && !pk.contains(':') {
-                break;
-            }
-            (pk, sk) = gen_func();
+        Err(e) => return Err(e.into()),
+    };
+    #[cfg(unix)] {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    let pk = base64::encode(&sk.0[sign::SECRETKEYBYTES / 2..]);
+    // Recover only a missing/mismatched public companion; never rotate private identity.
+    let public_path = dir.join("id_ed25519.pub");
+    if std::fs::read_to_string(&public_path).ok().as_deref() != Some(&pk) {
+        let mut public = tempfile::NamedTempFile::new_in(dir)?;
+        public.write_all(pk.as_bytes())?;
+        public.as_file().sync_all()?;
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            public.as_file().set_permissions(std::fs::Permissions::from_mode(0o644))?;
         }
-        let pub_file = format!("{sk_file}.pub");
-        if let Ok(mut f) = std::fs::File::create(&pub_file) {
-            f.write_all(pk.as_bytes()).ok();
-            if let Ok(mut f) = std::fs::File::create(sk_file) {
-                let s = base64::encode(&sk);
-                if f.write_all(s.as_bytes()).is_ok() {
-                    log::info!("Private/public key written to {}/{}", sk_file, pub_file);
-                    log::debug!("Public key: {}", pk);
-                    return (pk, Some(sk));
-                }
+        public.persist(&public_path).map_err(|e| e.error)?;
+    }
+    Ok((pk, sk))
+}
+
+#[cfg(test)]
+mod key_tests {
+    #[test]
+    fn identity_is_persistent_and_invalid_keys_fail_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pk, _) = super::load_or_create_key(dir.path()).unwrap();
+        assert_eq!(pk, super::load_or_create_key(dir.path()).unwrap().0);
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(dir.path().join("id_ed25519")).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        std::fs::write(dir.path().join("id_ed25519"), "invalid").unwrap();
+        assert!(super::load_or_create_key(dir.path()).is_err());
+        assert_eq!(std::fs::read_to_string(dir.path().join("id_ed25519")).unwrap(), "invalid");
+    }
+}
+
+/// Filesystem-authenticated control plane; never multiplex commands onto public TCP.
+#[cfg(unix)]
+pub fn control_listener() -> Result<Option<hbb_common::tokio::net::UnixListener>> {
+    use std::os::unix::fs::{DirBuilderExt, FileTypeExt, PermissionsExt};
+    let path = std::env::var("CONTROL_SOCKET").unwrap_or_default();
+    if path.is_empty() { return Ok(None); }
+    let socket_path = std::path::Path::new(&path);
+    if !socket_path.is_absolute() { hbb_common::bail!("control socket path must be absolute"); }
+    let parent = socket_path.parent().context("control socket needs a directory")?;
+    match std::fs::DirBuilder::new().mode(0o700).create(parent) {
+        Ok(()) => {},
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {},
+        Err(e) => return Err(e.into()),
+    }
+    let meta = std::fs::symlink_metadata(parent)?;
+    if !meta.is_dir() || meta.file_type().is_symlink() || meta.permissions().mode() & 0o077 != 0 {
+        hbb_common::bail!("control socket directory must be private (0700)");
+    }
+    if let Ok(meta) = std::fs::symlink_metadata(&path) {
+        if !meta.file_type().is_socket() { hbb_common::bail!("control path is not a socket"); }
+        match std::os::unix::net::UnixStream::connect(&path) {
+            Ok(_) => hbb_common::bail!("control socket is already in use"),
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => std::fs::remove_file(&path)?,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    let listener = hbb_common::tokio::net::UnixListener::bind(&path)?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(Some(listener))
+}
+
+#[cfg(unix)]
+pub async fn serve_control<F, Fut>(listener: hbb_common::tokio::net::UnixListener, handler: F) -> Result<()>
+where F: Fn(String) -> Fut, Fut: std::future::Future<Output = String> {
+    use hbb_common::tokio::{io::{AsyncReadExt, AsyncWriteExt}, time::{timeout, Duration}};
+    loop {
+        let (mut stream, _) = listener.accept().await?;
+        let mut command = Vec::new();
+        let result = timeout(Duration::from_secs(2), (&mut stream).take(1025).read_to_end(&mut command)).await;
+        if !matches!(result, Ok(Ok(_))) || command.is_empty() || command.len() > 1024 { continue; }
+        let command = match String::from_utf8(command) { Ok(v) => v, Err(_) => continue };
+        if command.contains(['\r', '\n', '\0']) { continue; }
+        if let Ok(response) = timeout(Duration::from_secs(2), handler(command)).await {
+            if response.len() <= 65536 {
+                let _ = timeout(Duration::from_secs(2), stream.write_all(response.as_bytes())).await;
             }
         }
     }
-    ("".to_owned(), None)
 }
 
 #[cfg(unix)]
@@ -187,32 +259,4 @@ pub async fn listen_signal() -> Result<()> {
 pub async fn listen_signal() -> Result<()> {
     let () = std::future::pending().await;
     unreachable!();
-}
-
-
-pub fn check_software_update() {
-    const ONE_DAY_IN_SECONDS: u64 = 60 * 60 * 24;
-    std::thread::spawn(move || loop {
-        std::thread::spawn(move || allow_err!(check_software_update_()));
-        std::thread::sleep(std::time::Duration::from_secs(ONE_DAY_IN_SECONDS));
-    });
-}
-
-#[tokio::main(flavor = "current_thread")]
-async fn check_software_update_() -> hbb_common::ResultType<()> {
-    let (request, url) = hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_SERVER.to_string());
-    let latest_release_response = reqwest::Client::builder().build()?
-        .post(url)
-        .json(&request)
-        .send()
-        .await?;
-
-    let bytes = latest_release_response.bytes().await?;
-    let resp: hbb_common::VersionCheckResponse = serde_json::from_slice(&bytes)?;
-    let response_url = resp.url;
-    let latest_release_version = response_url.rsplit('/').next().unwrap_or_default();
-    if get_version_number(&latest_release_version) > get_version_number(crate::version::VERSION) {
-       log::info!("new version is available: {}", latest_release_version);
-    }
-    Ok(())
 }

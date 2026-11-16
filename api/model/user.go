@@ -5,7 +5,10 @@ type User struct {
 	Username string `json:"username" gorm:"default:'';not null;uniqueIndex"`
 	Email    string `json:"email" gorm:"default:'';not null;index"`
 	// Email	string     	`json:"email" `
-	Password string     `json:"-" gorm:"default:'';not null;"`
+	Password string `json:"-" gorm:"default:'';not null;"`
+	// LDAP identities are provisioned by LDAP only, never inferred from username/email.
+	LdapDN   string     `json:"-" gorm:"default:'';not null;"`
+	LdapURL  string     `json:"-" gorm:"default:'';not null;"`
 	Nickname string     `json:"nickname" gorm:"default:'';not null;"`
 	Avatar   string     `json:"avatar" gorm:"default:'';not null;"`
 	GroupId  uint       `json:"group_id" gorm:"default:0;not null;index"`

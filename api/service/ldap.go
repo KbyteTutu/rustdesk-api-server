@@ -5,10 +5,13 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-ldap/ldap/v3"
 
@@ -71,47 +74,44 @@ func (lu *LdapUser) ToUser(u *model.User) *model.User {
 	return u
 }
 
-// connectAndBind creates an LDAP connection, optionally starts TLS, and then binds using the provided credentials.
+// connectAndBind requires certificate-verified LDAPS before sending credentials.
 func (ls *LdapService) connectAndBind(cfg *config.Ldap, username, password string) (*ldap.Conn, error) {
 	u, err := url.Parse(cfg.Url)
 	if err != nil {
 		return nil, errors.Join(ErrUrlParseFailed, err)
 	}
-
-	var conn *ldap.Conn
-	if u.Scheme == "ldaps" {
-		// WARNING: InsecureSkipVerify: true is not recommended for production
-		tlsConfig := &tls.Config{InsecureSkipVerify: !cfg.TlsVerify}
-		if cfg.TlsCaFile != "" {
-			caCert, err := os.ReadFile(cfg.TlsCaFile)
-			if err != nil {
-				return nil, errors.Join(ErrFileReadFailed, err)
-			}
-			caCertPool := x509.NewCertPool()
-			if !caCertPool.AppendCertsFromPEM(caCert) {
-				return nil, errors.Join(ErrLdapTlsFailed, errors.New("failed to append CA certificate"))
-			}
-			tlsConfig.RootCAs = caCertPool
-		}
-		conn, err = ldap.DialURL(cfg.Url, ldap.DialWithTLSConfig(tlsConfig))
-	} else {
-		conn, err = ldap.DialURL(cfg.Url)
+	if u.Scheme != "ldaps" || u.Hostname() == "" || !cfg.TlsVerify || username == "" || password == "" {
+		return nil, errors.New("LDAP requires verified LDAPS and nonempty bind credentials")
 	}
+
+	tlsConfig := &tls.Config{ServerName: u.Hostname(), MinVersion: tls.VersionTLS12}
+	if cfg.TlsCaFile != "" {
+		caCert, err := os.ReadFile(cfg.TlsCaFile)
+		if err != nil {
+			return nil, errors.Join(ErrFileReadFailed, err)
+		}
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, errors.Join(ErrLdapTlsFailed, errors.New("failed to append CA certificate"))
+		}
+		tlsConfig.RootCAs = caCertPool
+	}
+	conn, err := ldap.DialURL(cfg.Url, ldap.DialWithTLSConfig(tlsConfig), ldap.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}))
 
 	if err != nil {
 		return nil, errors.Join(ErrLdapConnectFailed, err)
 	}
 
+	conn.SetTimeout(5 * time.Second)
 	// Bind as the "service" user
 	if err = conn.Bind(username, password); err != nil {
-		fmt.Println("Bind failed")
 		conn.Close()
 		return nil, errors.Join(ErrLdapBindService, err)
 	}
 	return conn, nil
 }
 
-// connectAndBindAdmin creates an LDAP connection, optionally starts TLS, and then binds using the admin credentials.
+// connectAndBindAdmin binds the configured directory service account over LDAPS.
 func (ls *LdapService) connectAndBindAdmin(cfg *config.Ldap) (*ldap.Conn, error) {
 	return ls.connectAndBind(cfg, cfg.BindDn, cfg.BindPassword)
 }
@@ -139,14 +139,14 @@ func (ls *LdapService) Authenticate(username, password string) (*model.User, err
 	cfg := &Config.Ldap
 
 	// Skip allow-group check for admins
-    isAdmin := ls.isUserAdmin(cfg, ldapUser)
-    
-    // non-admins only check if allow-group is configured
-    if !isAdmin && cfg.User.AllowGroup != "" {
-        if !ls.isUserInGroup(cfg, ldapUser, cfg.User.AllowGroup) {
-            return nil, errors.New("user not in allowed group")
-        }
-    }
+	isAdmin := ls.isUserAdmin(cfg, ldapUser)
+
+	// non-admins only check if allow-group is configured
+	if !isAdmin && cfg.User.AllowGroup != "" {
+		if !ls.isUserInGroup(cfg, ldapUser, cfg.User.AllowGroup) {
+			return nil, errors.New("user not in allowed group")
+		}
+	}
 
 	err = ls.verifyCredentials(cfg, ldapUser.Dn, password)
 	if err != nil {
@@ -161,42 +161,41 @@ func (ls *LdapService) Authenticate(username, password string) (*model.User, err
 
 // isUserInGroup checks if the user is a member of the specified group. by_sw
 func (ls *LdapService) isUserInGroup(cfg *config.Ldap, ldapUser *LdapUser, groupDN string) bool {
-    // Check "memberOf" directly
-    if len(ldapUser.MemberOf) > 0 {
-        for _, group := range ldapUser.MemberOf {
-            if strings.EqualFold(group, groupDN) {
-                return true
-            }
-        }
-    }
+	// Check "memberOf" directly
+	if len(ldapUser.MemberOf) > 0 {
+		for _, group := range ldapUser.MemberOf {
+			if strings.EqualFold(group, groupDN) {
+				return true
+			}
+		}
+	}
 
-    // For "member" attribute, perform a reverse search on the group
-    member := "member"
-    userDN := ldap.EscapeFilter(ldapUser.Dn)
-    groupDN = ldap.EscapeFilter(groupDN)
-    groupFilter := fmt.Sprintf("(%s=%s)", member, userDN)
+	// For "member" attribute, perform a reverse search on the group
+	member := "member"
+	userDN := ldap.EscapeFilter(ldapUser.Dn)
+	groupFilter := fmt.Sprintf("(%s=%s)", member, userDN)
 
-    // Create the LDAP search request
-    groupSearchRequest := ldap.NewSearchRequest(
-        groupDN,
-        ldap.ScopeWholeSubtree,
-        ldap.NeverDerefAliases,
-        0,     // Unlimited search results
-        0,     // No time limit
-        false, // Return both attributes and DN
-        groupFilter,
-        []string{"dn"},
-        nil,
-    )
+	// Create the LDAP search request
+	groupSearchRequest := ldap.NewSearchRequest(
+		groupDN,
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		0,     // Unlimited search results
+		0,     // No time limit
+		false, // Return both attributes and DN
+		groupFilter,
+		[]string{"dn"},
+		nil,
+	)
 
-    // Perform the group search
-    groupResult, err := ls.searchResult(cfg, groupSearchRequest)
-    if err != nil {
-        return false
-    }
+	// Perform the group search
+	groupResult, err := ls.searchResult(cfg, groupSearchRequest)
+	if err != nil {
+		return false
+	}
 
-    // If any results are returned, the user is part of the group
-    return len(groupResult.Entries) > 0
+	// If any results are returned, the user is part of the group
+	return len(groupResult.Entries) > 0
 }
 
 // mapToLocalUser checks whether the user exists locally; if not, creates one.
@@ -208,6 +207,8 @@ func (ls *LdapService) mapToLocalUser(cfg *config.Ldap, lu *LdapUser) (*model.Us
 	// If the user doesn't exist in local DB, create a new one
 	if localUser.Id == 0 {
 		newUser := lu.ToUser(nil)
+		newUser.LdapDN = lu.Dn
+		newUser.LdapURL = cfg.Url
 		// Typically, you don’t store LDAP user passwords locally.
 		// If needed, you can set a random password here.
 		newUser.IsAdmin = &isAdmin
@@ -218,20 +219,17 @@ func (ls *LdapService) mapToLocalUser(cfg *config.Ldap, lu *LdapUser) (*model.Us
 		return userService.InfoByUsername(lu.Username), nil
 	}
 
+	storedDN, storedErr := ldap.ParseDN(localUser.LdapDN)
+	loginDN, loginErr := ldap.ParseDN(lu.Dn)
+	if localUser.LdapDN == "" || localUser.LdapURL != cfg.Url || storedErr != nil || loginErr != nil || !storedDN.EqualFold(loginDN) {
+		return nil, errors.New("LDAP identity conflicts with an existing account; explicit identity binding is required")
+	}
 	// If the user already exists and sync is enabled, update local info
 	if cfg.User.Sync {
-		originalEmail := localUser.Email
-		originalNickname := localUser.Nickname
-		originalIsAdmin := localUser.IsAdmin
-		originalStatus := localUser.Status
 		lu.ToUser(localUser) // merges LDAP data into the existing user
 		localUser.IsAdmin = &isAdmin
 		if err := userService.Update(localUser); err != nil {
-			// If the update fails, revert to original data
-			localUser.Email = originalEmail
-			localUser.Nickname = originalNickname
-			localUser.IsAdmin = originalIsAdmin
-			localUser.Status = originalStatus
+			return nil, err
 		}
 	}
 
@@ -319,6 +317,9 @@ func (ls *LdapService) GetUserInfoByEmailLocal(email string) (*model.User, error
 func (ls *LdapService) usernameSearchResult(cfg *config.Ldap, username string) (*ldap.SearchResult, error) {
 	// Build the combined filter for the username
 	filter := ls.filterField(ls.fieldUsername(cfg), username)
+	if filter == "" {
+		return nil, errors.New("invalid LDAP username attribute")
+	}
 	// Create the *ldap.SearchRequest
 	searchRequest := ls.buildUserSearchRequest(cfg, filter)
 	return ls.searchResult(cfg, searchRequest)
@@ -327,11 +328,20 @@ func (ls *LdapService) usernameSearchResult(cfg *config.Ldap, username string) (
 // emailSearchResult returns the search result for the given email.
 func (ls *LdapService) emailSearchResult(cfg *config.Ldap, email string) (*ldap.SearchResult, error) {
 	filter := ls.filterField(ls.fieldEmail(cfg), email)
+	if filter == "" {
+		return nil, errors.New("invalid LDAP email attribute")
+	}
 	searchRequest := ls.buildUserSearchRequest(cfg, filter)
 	return ls.searchResult(cfg, searchRequest)
 }
 
 func (ls *LdapService) searchResult(cfg *config.Ldap, searchRequest *ldap.SearchRequest) (*ldap.SearchResult, error) {
+	if _, err := ldap.ParseDN(searchRequest.BaseDN); err != nil {
+		return nil, err
+	}
+	if _, err := ldap.CompileFilter(searchRequest.Filter); err != nil {
+		return nil, err
+	}
 	ldapConn, err := ls.connectAndBindAdmin(cfg)
 	if err != nil {
 		return nil, err
@@ -396,8 +406,13 @@ func (ls *LdapService) userResultToLdapUser(cfg *config.Ldap, entry *ldap.Entry)
 }
 
 // filterField helps build simple attribute filters, e.g. (uid=username).
+var ldapAttribute = regexp.MustCompile(`^(?:[A-Za-z][A-Za-z0-9-]*|[0-9]+(?:\.[0-9]+)+)(?:;[A-Za-z0-9-]+)*$`)
+
 func (ls *LdapService) filterField(field, value string) string {
-	return fmt.Sprintf("(%s=%s)", field, value)
+	if !ldapAttribute.MatchString(field) {
+		return ""
+	} // Invalid filters fail before connecting.
+	return fmt.Sprintf("(%s=%s)", field, ldap.EscapeFilter(value))
 }
 
 // fieldUsername returns the configured username attribute or "uid" if not set.
@@ -472,7 +487,7 @@ func (ls *LdapService) isUserAdmin(cfg *config.Ldap, ldapUser *LdapUser) bool {
 	// For "member" attribute, perform a reverse search on the group
 	member := "member"
 	userDN := ldap.EscapeFilter(ldapUser.Dn)
-	adminGroupDn := ldap.EscapeFilter(adminGroup)
+	adminGroupDn := adminGroup
 	groupFilter := fmt.Sprintf("(%s=%s)", member, userDN)
 
 	// Create the LDAP search request
@@ -506,14 +521,8 @@ func (ls *LdapService) isUserAdmin(cfg *config.Ldap, ldapUser *LdapUser) bool {
 // If no enable attribute or value is set, all users are considered enabled by default.
 func (ls *LdapService) isUserEnabled(cfg *config.Ldap, ldapUser *LdapUser) bool {
 	// Retrieve the enable attribute and expected value from the configuration
-	enableAttr := cfg.User.EnableAttr
+	enableAttr := ls.fieldUserEnableAttr(cfg)
 	enableAttrValue := cfg.User.EnableAttrValue
-
-	// If no enable attribute or value is configured, consider all users as enabled
-	if enableAttr == "" || enableAttrValue == "" {
-		ldapUser.Enabled = true
-		return true
-	}
 
 	// Normalize the enable attribute for comparison
 	enableAttr = strings.ToLower(enableAttr)
@@ -535,14 +544,14 @@ func (ls *LdapService) isUserEnabled(cfg *config.Ldap, ldapUser *LdapUser) bool 
 	}
 
 	// For other attributes, perform a direct comparison with the expected value
-	ldapUser.Enabled = ldapUser.EnableAttrValue == enableAttrValue
+	ldapUser.Enabled = enableAttrValue != "" && ldapUser.EnableAttrValue == enableAttrValue
 	return ldapUser.Enabled
 }
 
 // getAttrOfDn retrieves the value of an attribute for a given DN.
 func (ls *LdapService) getAttrOfDn(cfg *config.Ldap, dn, attr string) string {
 	searchRequest := ldap.NewSearchRequest(
-		ldap.EscapeFilter(dn),
+		dn,
 		ldap.ScopeBaseObject,
 		ldap.NeverDerefAliases,
 		0,     // unlimited search results

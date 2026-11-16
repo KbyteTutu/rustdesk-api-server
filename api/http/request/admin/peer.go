@@ -1,6 +1,10 @@
 package admin
 
-import "github.com/lejianwen/rustdesk-api/v2/model"
+import (
+	"errors"
+	"github.com/lejianwen/rustdesk-api/v2/model"
+	"strings"
+)
 
 type PeerForm struct {
 	RowId    uint   `json:"row_id" `
@@ -46,6 +50,30 @@ type PeerQuery struct {
 	Ip       string `json:"ip" form:"ip"`
 	Username string `json:"username" form:"username"`
 	Alias    string `json:"alias" form:"alias"`
+}
+
+// UUIDList bounds both the raw query and the number of bound SQL parameters.
+func (q *PeerQuery) UUIDList() ([]string, error) {
+	if len(q.Uuids) > 8192 {
+		return nil, errors.New("UUID query too large")
+	}
+	seen := make(map[string]bool)
+	var ids []string
+	for _, id := range strings.Split(q.Uuids, ",") {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		if len(id) > 128 || len(ids) >= 200 {
+			return nil, errors.New("invalid UUID list")
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if q.Uuids != "" && len(ids) == 0 {
+		return nil, errors.New("empty UUID list")
+	}
+	return ids, nil
 }
 
 type SimpleDataQuery struct {

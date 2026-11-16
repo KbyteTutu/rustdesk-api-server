@@ -4,6 +4,9 @@
       <el-form-item :label="T('Username')" prop="username">
         <el-input v-model="form.username"></el-input>
       </el-form-item>
+      <el-form-item v-if="!(route.params.id > 0)" :label="T('Password')" prop="password">
+        <el-input v-model="form.password" type="password" show-password autocomplete="new-password"></el-input>
+      </el-form-item>
       <el-form-item :label="T('Email')" prop="email">
         <el-input v-model="form.email"></el-input>
       </el-form-item>
@@ -50,9 +53,9 @@
   import { T } from '@/utils/i18n'
 
   const route = useRoute()
-  const { form, item, getDetail, groupsList } = useGetDetail(route.params.id)
+  const { form, groupsList } = useGetDetail(route.params.id)
 
-  const { root, rules, validate, submit, cancel } = useSubmit(form, route.params.id)
+  const { root, rules, submit, cancel } = useSubmit(form, route.params.id)
 
 </script>
 

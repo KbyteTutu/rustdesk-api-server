@@ -60,14 +60,14 @@
   import { ref } from 'vue'
   import { T } from '@/utils/i18n'
   import { useDark } from '@vueuse/core'
-  import { Sunny, Moon } from '@element-plus/icons'
+  import { Sunny, Moon } from '@element-plus/icons-vue'
 
   const userStore = useUserStore()
   const user = userStore
   const appStore = useAppStore()
 
-  const logout = () => {
-    userStore.logout()
+  const logout = async () => {
+    await userStore.logout()
     window.location.reload()
   }
 
@@ -98,7 +98,7 @@
   }
 
   .title {
-    color: #fff;
+    color: var(--el-text-color-primary);
     display: flex;
     align-items: center;
     justify-content: space-around;
